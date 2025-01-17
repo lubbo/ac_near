@@ -59,6 +59,7 @@ driversFullList =[]
 myDriver = 0
 trackLength = 0
 lastUpdateTime = 0
+fastestLapTime = 9999999
 
 badge=[]
 
@@ -199,7 +200,7 @@ def acMain(ac_version):
 def acUpdate(deltaT):
     # ac.log("Near: AC Update")
     try:
-        global myDriver, lastUpdateTime, driversFullList
+        global myDriver, lastUpdateTime, driversFullList, fastestLapTime
 
         lastUpdateTime += deltaT
 
@@ -231,6 +232,10 @@ def acUpdate(deltaT):
             driver["isInPit"]     = ac.isCarInPit(index)
 
             isInPitLine = ac.isCarInPitline(index)
+
+            if driver["bestLap"] > 0 and driver["bestLap"] < 9999999 and driver["bestLap"] < fastestLapTime:
+                # ac.log("FASTEST LAP DETECTED {:f}".format(driver["bestLap"]))
+                fastestLapTime = driver["bestLap"]
 
             # Race
             if info.graphics.session == 2:
@@ -288,11 +293,42 @@ def acUpdate(deltaT):
     except Exception as e:
         ac.log("Near: Error in acUpdate: %s" % e)
 
-def timeToString(time):
+def timeToLabel(label, time, bestTime):
+
     if time <= 0 or time == 9999999:
-        return "-:--.---"
+        ac.setText(label, "-:--.---")
+        ac.setFontColor(label,  0.555, 0.555, 0.555, 1)
+        return
+
+    ac.setText(label, "{:d}:{:0>2d}.{:0>3d}".format(int(time/60000), int((time%60000)/1000), time%1000))
+
+    if time <= fastestLapTime:
+        ac.setFontColor(label, 0.8, 0, 1, 1)
+    elif time <= bestTime:
+        ac.setFontColor(label, 0, 1, 0, 1)
     else:
-        return "{:d}:{:0>2d}.{:0>3d}".format(int(time/60000), int((time%60000)/1000), time%1000)
+        ac.setFontColor(label, 1, 1, 1, 1)
+
+def deltaTimeToLabel(label, time1, time2):
+
+    if time1 <= 0 or time1 == 9999999 or time2 <= 0 or time2 == 9999999:
+        ac.setText(label, "")
+        return
+
+    delta = time1-time2
+    # ac.log("deltaTimeToLabel t1 {:f} ".format(float(time1)))
+    # ac.log("deltaTimeToLabel t2 {:f} ".format(float(time2)))
+    # ac.log("deltaTimeToLabel delta {:f} ".format(float(delta)))
+
+    if delta != 0:
+        ac.setText(label, "({:+.1f})".format(delta/1000))
+    else:
+        ac.setText(label, "")
+
+    if delta > 0:
+        ac.setFontColor(label, 0, 1, 0, 1)
+    else:
+        ac.setFontColor(label, 1, 0, 0, 1)
 
 def deltaToLabel(label, delta, speedAvg):
     if delta > 100:
@@ -333,7 +369,9 @@ class NearWindow:
             self.nameLabel = []
             self.lastTimeTitleLabel = []
             self.lastTimeLabel = []
+            self.lastTimeDeltaLabel = []
             self.bestTimeTitleLabel = []
+            self.bestTimeDeltaLabel = []
             self.bestTimeLabel = []
             self.gapTimeLabel = []
 
@@ -350,11 +388,17 @@ class NearWindow:
                 self.lastTimeLabel.append(ac.addLabel(self.window, ""))
                 ac.setFontAlignment(self.lastTimeLabel[index], 'left')
 
+                self.lastTimeDeltaLabel.append(ac.addLabel(self.window, ""))
+                ac.setFontAlignment(self.lastTimeDeltaLabel[index], 'left')
+
                 self.bestTimeTitleLabel.append(ac.addLabel(self.window, ""))
                 ac.setFontAlignment(self.bestTimeTitleLabel[index], 'left')
 
                 self.bestTimeLabel.append(ac.addLabel(self.window, ""))
                 ac.setFontAlignment(self.bestTimeLabel[index], 'left')
+
+                self.bestTimeDeltaLabel.append(ac.addLabel(self.window, ""))
+                ac.setFontAlignment(self.bestTimeDeltaLabel[index], 'left')
 
                 self.gapTimeLabel.append(ac.addLabel(self.window, ""))
                 ac.setFontAlignment(self.gapTimeLabel[index], 'right')
@@ -388,9 +432,10 @@ class NearWindow:
         self.heightGap = 3*fontSizeGap*zoom
 
         self.vSpaceTime = 0.25*fontSizeTime*zoom
+        self.padding = 0.25*fontSizeTime*zoom
 
-        self.width = 2*self.widthGap
-        self.height = self.firstSpacing + 2*(fontSizeName*zoom + self.heightGap) + self.vSpaceTime
+        self.width = 3*self.widthGap + 2*self.padding
+        self.height = self.firstSpacing + 2*(fontSizeName*zoom + self.heightGap) + self.vSpaceTime + 2*self.padding
 
         for index in range(2):
 
@@ -410,25 +455,31 @@ class NearWindow:
             ac.setSize(self.nameLabel[index], fontSizeName*10*zoom, fontSizeName*zoom)
             ac.setVisible(self.nameLabel[index], 1)
 
-            ac.setText(self.lastTimeTitleLabel[index], 'LAST')
             ac.setFontColor(self.lastTimeTitleLabel[index], 0.314, 0.337, 0.369, 1)
             ac.setFontSize(self.lastTimeTitleLabel[index], fontSizeTitle*zoom)
             ac.setSize(self.lastTimeTitleLabel[index], fontSizeTitle*4*zoom, fontSizeTitle*zoom)
             ac.setVisible(self.lastTimeTitleLabel[index], 1)
 
-            ac.setText(self.bestTimeTitleLabel[index], 'BEST')
             ac.setFontColor(self.bestTimeTitleLabel[index], 0.314, 0.337, 0.369, 1)
             ac.setFontSize(self.bestTimeTitleLabel[index], fontSizeTitle*zoom)
             ac.setSize(self.bestTimeTitleLabel[index], fontSizeTitle*4*zoom, fontSizeTitle*zoom)
             ac.setVisible(self.bestTimeTitleLabel[index], 1)
 
             ac.setFontSize(self.lastTimeLabel[index], fontSizeTime*zoom)
-            ac.setSize(self.lastTimeLabel[index], fontSizeTime*7*zoom, fontSizeTime*zoom)
+            ac.setSize(self.lastTimeLabel[index], fontSizeTime*4*zoom, fontSizeTime*zoom)
             ac.setVisible(self.lastTimeLabel[index], 1)
 
+            ac.setFontSize(self.lastTimeDeltaLabel[index], fontSizeTime*zoom)
+            ac.setSize(self.lastTimeDeltaLabel[index], fontSizeTime*4*zoom, fontSizeTime*zoom)
+            ac.setVisible(self.lastTimeDeltaLabel[index], 1)
+
             ac.setFontSize(self.bestTimeLabel[index], fontSizeTime*zoom)
-            ac.setSize(self.bestTimeLabel[index], fontSizeTime*7*zoom, fontSizeTime*zoom)
+            ac.setSize(self.bestTimeLabel[index], fontSizeTime*4*zoom, fontSizeTime*zoom)
             ac.setVisible(self.bestTimeLabel[index], 1)
+
+            ac.setFontSize(self.bestTimeDeltaLabel[index], fontSizeTime*zoom)
+            ac.setSize(self.bestTimeDeltaLabel[index], fontSizeTime*4*zoom, fontSizeTime*zoom)
+            ac.setVisible(self.bestTimeDeltaLabel[index], 1)
 
             ac.setFontSize(self.gapTimeLabel[index], fontSizeGap*zoom)
             ac.setSize(self.gapTimeLabel[index], self.widthGap, fontSizeGap*zoom)
@@ -436,22 +487,52 @@ class NearWindow:
             
 
         #Driver ahead
-        ac.setPosition(self.positionLabel[0], 0 , self.firstSpacing)
-        ac.setPosition(self.nameLabel[0], self.widthPositionLabel , self.firstSpacing)
-        ac.setPosition(self.lastTimeTitleLabel[0], 0 , self.firstSpacing + self.heightDriverHeaderLabel + 0.5*self.heightGap - fontSizeTitle*zoom - fontSizeTime*zoom - self.vSpaceTime)
-        ac.setPosition(self.lastTimeLabel[0], 0 , self.firstSpacing + self.heightDriverHeaderLabel + 0.5*self.heightGap - fontSizeTime*zoom - self.vSpaceTime)
-        ac.setPosition(self.bestTimeTitleLabel[0], 0 , self.firstSpacing + self.heightDriverHeaderLabel + 0.5*self.heightGap + self.vSpaceTime)
-        ac.setPosition(self.bestTimeLabel[0], 0 , self.firstSpacing + self.heightDriverHeaderLabel + 0.5*self.heightGap + fontSizeTitle*zoom + self.vSpaceTime)
-        ac.setPosition(self.gapTimeLabel[0], self.widthGap , self.firstSpacing + self.heightDriverHeaderLabel + 0.5*self.heightGap - fontSizeTitle*zoom - fontSizeTime*zoom)
+        x = self.padding
+        y = self.padding + self.firstSpacing
+        ac.setPosition(self.positionLabel[0], x , y)
+        x += self.widthPositionLabel
+        ac.setPosition(self.nameLabel[0], x , y)
+        x = self.padding
+        y = self.padding + self.firstSpacing + self.heightDriverHeaderLabel + 0.5*self.heightGap - fontSizeTitle*zoom - fontSizeTime*zoom - self.vSpaceTime
+        ac.setPosition(self.lastTimeTitleLabel[0], x , y)
+        y += fontSizeTitle*zoom
+        ac.setPosition(self.lastTimeLabel[0], x , y)
+        x += fontSizeTime*4*zoom
+        ac.setPosition(self.lastTimeDeltaLabel[0], x , y)
+        x = self.padding
+        y += fontSizeTime*zoom + self.vSpaceTime
+        ac.setPosition(self.bestTimeTitleLabel[0], x , y)
+        y += fontSizeTitle*zoom
+        ac.setPosition(self.bestTimeLabel[0], x , y)
+        x += fontSizeTime*4*zoom
+        ac.setPosition(self.bestTimeDeltaLabel[0], x, y)
+        x = self.padding + 2*self.widthGap
+        y = self.firstSpacing + self.heightDriverHeaderLabel + 0.33*self.heightGap
+        ac.setPosition(self.gapTimeLabel[0], x, y)
 
         #Driver behind
-        ac.setPosition(self.lastTimeTitleLabel[1], 0 , self.firstSpacing + self.heightDriverHeaderLabel + self.heightGap + 0.5*self.heightGap - fontSizeTitle*zoom - fontSizeTime*zoom - self.vSpaceTime)
-        ac.setPosition(self.lastTimeLabel[1], 0 , self.firstSpacing + self.heightDriverHeaderLabel + self.heightGap + 0.5*self.heightGap - fontSizeTime*zoom - self.vSpaceTime)
-        ac.setPosition(self.bestTimeTitleLabel[1], 0 , self.firstSpacing + self.heightDriverHeaderLabel + self.heightGap + 0.5*self.heightGap + self.vSpaceTime)
-        ac.setPosition(self.bestTimeLabel[1], 0 , self.firstSpacing + self.heightDriverHeaderLabel + self.heightGap + 0.5*self.heightGap + fontSizeTitle*zoom + self.vSpaceTime)
-        ac.setPosition(self.gapTimeLabel[1], self.widthGap , self.firstSpacing + self.heightDriverHeaderLabel + self.heightGap + 0.5*self.heightGap - fontSizeTitle*zoom - fontSizeTime*zoom)
-        ac.setPosition(self.positionLabel[1], 0 , self.firstSpacing + self.heightDriverHeaderLabel + 2*self.heightGap)
-        ac.setPosition(self.nameLabel[1], self.widthPositionLabel , self.firstSpacing + self.heightDriverHeaderLabel + 2*self.heightGap)
+        x = self.padding
+        y = self.padding + self.firstSpacing + self.heightDriverHeaderLabel + self.heightGap + 0.5*self.heightGap - fontSizeTitle*zoom - fontSizeTime*zoom - self.vSpaceTime
+        ac.setPosition(self.lastTimeTitleLabel[1], x , y)
+        y += fontSizeTitle*zoom
+        ac.setPosition(self.lastTimeLabel[1], x, y)
+        x += fontSizeTime*4*zoom
+        ac.setPosition(self.lastTimeDeltaLabel[1], x, y)
+        x = self.padding
+        y += fontSizeTime*zoom + self.vSpaceTime
+        ac.setPosition(self.bestTimeTitleLabel[1], x, y)
+        y += fontSizeTitle*zoom
+        ac.setPosition(self.bestTimeLabel[1], x, y)
+        x += fontSizeTime*4*zoom
+        ac.setPosition(self.bestTimeDeltaLabel[1], x, y)
+        x = self.padding + 2*self.widthGap
+        y = self.firstSpacing + self.heightDriverHeaderLabel + 1.33*self.heightGap
+        ac.setPosition(self.gapTimeLabel[1], x , y)
+        x = self.padding
+        y =  self.firstSpacing + self.heightDriverHeaderLabel + 2*self.heightGap
+        ac.setPosition(self.positionLabel[1], x, y)
+        x += self.widthPositionLabel
+        ac.setPosition(self.nameLabel[1], x, y)
 
         # Adjust window size, opacity and border
         ac.setSize(self.window, self.width, self.height)
@@ -475,20 +556,48 @@ class NearWindow:
             elif myIndex == len(standing) - 1:
                 behindIndex = 0
 
-            ac.setText(self.positionLabel[0], "{0}.".format(aheadIndex+1))
-            ac.setText(self.positionLabel[1], "{0}.".format(behindIndex+1))
+            if info.graphics.session == 2 and myIndex == 0:
+                ac.setText(self.positionLabel[0], "-")
+                ac.setText(self.nameLabel[0], "---")
+                ac.setText(self.bestTimeTitleLabel[0], "BEST")
+                ac.setText(self.bestTimeLabel[0], "-:--.---")
+                ac.setText(self.bestTimeDeltaLabel[0], "")
+                ac.setText(self.lastTimeTitleLabel[0], "LAST")
+                ac.setText(self.lastTimeLabel[0], "-:--.---")
+                ac.setText(self.lastTimeDeltaLabel[0], "")
+                ac.setText(self.gapTimeLabel[0], "---")
+            else:
+                ac.setText(self.positionLabel[0], "{0}.".format(aheadIndex+1))
+                ac.setText(self.nameLabel[0], standing[aheadIndex]["driverName"])
+                ac.setText(self.bestTimeTitleLabel[0], "BEST")
+                timeToLabel(self.bestTimeLabel[0], standing[aheadIndex]["bestLap"], standing[aheadIndex]["bestLap"])
+                deltaTimeToLabel(self.bestTimeDeltaLabel[0], standing[aheadIndex]["bestLap"], standing[myIndex]["bestLap"])
+                ac.setText(self.lastTimeTitleLabel[0], "LAST")
+                timeToLabel(self.lastTimeLabel[0], standing[aheadIndex]["lastLapTime"], standing[aheadIndex]["bestLap"])
+                deltaTimeToLabel(self.lastTimeDeltaLabel[0], standing[aheadIndex]["lastLapTime"], standing[myIndex]["lastLapTime"])
+                deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+            
 
-            ac.setText(self.nameLabel[0], standing[aheadIndex]["driverName"])
-            ac.setText(self.nameLabel[1], standing[behindIndex]["driverName"])
-
-            deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
-            deltaToLabel(self.gapTimeLabel[1], standing[behindIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
-
-            ac.setText(self.bestTimeLabel[0], timeToString(standing[aheadIndex]["bestLap"]))
-            ac.setText(self.bestTimeLabel[1], timeToString(standing[behindIndex]["bestLap"]))
-
-            ac.setText(self.lastTimeLabel[0], timeToString(standing[aheadIndex]["lastLapTime"]))
-            ac.setText(self.lastTimeLabel[1], timeToString(standing[behindIndex]["lastLapTime"]))
+            if info.graphics.session == 2 and myIndex == len(standing) - 1:
+                ac.setText(self.lastTimeTitleLabel[1], "LAST")
+                ac.setText(self.lastTimeLabel[1], "-:--.---")
+                ac.setText(self.lastTimeDeltaLabel[1], "")
+                ac.setText(self.bestTimeTitleLabel[1], "BEST")
+                ac.setText(self.bestTimeLabel[1], "-:--.---")
+                ac.setText(self.bestTimeDeltaLabel[1], "")
+                ac.setText(self.gapTimeLabel[1], "---")
+                ac.setText(self.positionLabel[1], "-")
+                ac.setText(self.nameLabel[1], "---")
+            else:
+                ac.setText(self.bestTimeTitleLabel[1], "BEST")
+                timeToLabel(self.bestTimeLabel[1], standing[behindIndex]["bestLap"], standing[behindIndex]["bestLap"])
+                ac.setText(self.lastTimeTitleLabel[1], "LAST")
+                timeToLabel(self.lastTimeLabel[1], standing[behindIndex]["lastLapTime"], standing[behindIndex]["bestLap"])
+                deltaTimeToLabel(self.lastTimeDeltaLabel[1], standing[behindIndex]["lastLapTime"], standing[aheadIndex]["lastLapTime"])
+                deltaTimeToLabel(self.bestTimeDeltaLabel[1], standing[behindIndex]["bestLap"], standing[aheadIndex]["bestLap"])
+                deltaToLabel(self.gapTimeLabel[1], standing[behindIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                ac.setText(self.positionLabel[1], "{0}.".format(behindIndex+1))
+                ac.setText(self.nameLabel[1], standing[behindIndex]["driverName"])
 
             # ac.log("Near: NearWindow updateView - END")
         except Exception as e:
@@ -505,7 +614,7 @@ class Near_config:
         widthCenter     = fontSize*5
         widthRight      = fontSize*5
         width           = widthLeft + widthCenter + widthRight + 2*spacing
-        height          = firstSpacing + (fontSize*1.5 + spacing)*11
+        height          = firstSpacing + (fontSize*1.5 + spacing)*9
 
         ac.setSize(self.window, width, height)
 
@@ -515,7 +624,7 @@ class Near_config:
         self.plusButton = []
         self.minusButton = []
 
-        for index in range(11):
+        for index in range(9):
             self.leftLabel.append(ac.addLabel(self.window, ""))
             ac.setFontSize(self.leftLabel[index], fontSize)
             ac.setPosition(self.leftLabel[index], spacing, firstSpacing + index*(fontSize*1.5+spacing))
@@ -592,14 +701,6 @@ class Near_config:
 
         rowIndex += 1
 
-        ac.setText(self.leftLabel[rowIndex], "Show badges:")
-        ac.addOnClickedListener(self.changeButton[rowIndex], toggleBadge)
-        ac.setVisible(self.plusButton[rowIndex], 0)
-        ac.setVisible(self.minusButton[rowIndex], 0)
-        self.showBadgeId = rowIndex
-
-        rowIndex += 1
-
         ac.setText(self.leftLabel[rowIndex], "Units:")
         ac.addOnClickedListener(self.changeButton[rowIndex], toggleUnits)
         ac.setVisible(self.plusButton[rowIndex], 0)
@@ -616,14 +717,6 @@ class Near_config:
 
         rowIndex += 1
 
-        ac.setText(self.leftLabel[rowIndex], "Show border:")
-        ac.addOnClickedListener(self.changeButton[rowIndex], toggleBorderPos)
-        ac.setVisible(self.plusButton[rowIndex], 0)
-        ac.setVisible(self.minusButton[rowIndex], 0)
-        self.showBorderPosId = rowIndex
-
-        rowIndex += 1
-
         ac.setText(self.leftLabel[rowIndex], "Refresh every:")
         ac.setVisible(self.changeButton[rowIndex], 0)
         ac.addOnClickedListener(self.plusButton[rowIndex], refreshPlus)
@@ -636,7 +729,6 @@ class Near_config:
         ac.setText(self.centerLabel[self.fontSizeId],  "{:.1f}".format(zoom))
         ac.setText(self.centerLabel[self.opacityId],   "{0} %".format(opacity))
         ac.setText(self.centerLabel[self.showBorderId], yesOrNo(showBorder))
-        ac.setText(self.centerLabel[self.showBadgeId], yesOrNo(showBadge))
 
         if unit == "metric":
             ac.setText(self.centerLabel[self.unitsId], "Metric")
@@ -706,36 +798,6 @@ def toggleBorder(dummy, variable):
         showBorder = 0
     else:
         showBorder = 1
-
-    refreshAndWriteParameters()
-
-def toggleTyres(dummy, variable):
-    global showTyres
-
-    if showTyres:
-        showTyres = 0
-    else:
-        showTyres = 1
-
-    refreshAndWriteParameters()
-
-def togglePitStops(dummy, variable):
-    global showPitStops
-
-    if showPitStops:
-        showPitStops = 0
-    else:
-        showPitStops = 1
-
-    refreshAndWriteParameters()
-
-def toggleBadge(dummy, variable):
-    global showBadge
-
-    if showBadge:
-        showBadge = 0
-    else:
-        showBadge = 1
 
     refreshAndWriteParameters()
 
