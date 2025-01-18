@@ -575,7 +575,11 @@ class NearWindow:
                 ac.setText(self.lastTimeTitleLabel[0], "LAST")
                 timeToLabel(self.lastTimeLabel[0], standing[aheadIndex]["lastLapTime"], standing[aheadIndex]["bestLap"])
                 deltaTimeToLabel(self.lastTimeDeltaLabel[0], standing[aheadIndex]["lastLapTime"], standing[myIndex]["lastLapTime"])
-                deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                
+                if info.graphics.session == 2:
+                    deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                else:
+                    deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["lapPosition"] - myDriver["lapPosition"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
             
 
             if info.graphics.session == 2 and myIndex == len(standing) - 1:
@@ -595,7 +599,12 @@ class NearWindow:
                 timeToLabel(self.lastTimeLabel[1], standing[behindIndex]["lastLapTime"], standing[behindIndex]["bestLap"])
                 deltaTimeToLabel(self.lastTimeDeltaLabel[1], standing[behindIndex]["lastLapTime"], standing[aheadIndex]["lastLapTime"])
                 deltaTimeToLabel(self.bestTimeDeltaLabel[1], standing[behindIndex]["bestLap"], standing[aheadIndex]["bestLap"])
-                deltaToLabel(self.gapTimeLabel[1], standing[behindIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                
+                if info.graphics.session == 2:
+                    deltaToLabel(self.gapTimeLabel[1], standing[behindIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                else:
+                    deltaToLabel(self.gapTimeLabel[1], standing[behindIndex]["lapPosition"] - myDriver["lapPosition"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+
                 ac.setText(self.positionLabel[1], "{0}.".format(behindIndex+1))
                 ac.setText(self.nameLabel[1], standing[behindIndex]["driverName"])
 
