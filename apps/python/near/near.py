@@ -27,7 +27,13 @@ import configparser
 import ac
 import acsys
 
-# Global
+# Config
+config = 0
+
+## Config Global
+configIndex = 1
+
+## Config indexed
 updateTime = 200
 
 showLogo = 0
@@ -38,6 +44,8 @@ showBadge = 1
 colorAt = 250
 unit = "metric"
 
+padding = 4
+hspace = 0
 fontSizeName = 12
 fontSizeTitle = 8
 fontSizeTime = 16
@@ -45,28 +53,20 @@ fontSizeGap = 28
 
 zoom = 1
 
-#Classes from the classes.ini file
-classes = []
-
 # Global variables
 spacing = 5
 firstSpacing = 30
 fontSizeConfig = 16
 
 maxDriverCount = 32
-
-driversFullList =[]
+driversFullList = []
 myDriver = 0
 trackLength = 0
 lastUpdateTime = 0
 fastestLapTime = 9999999
 
-badge=[]
-
+#Apps
 nearApp = 0
-
-config = 0
-classesConfig = 0
 configApp = 0
 
 # ac.log("Near: is starting!")
@@ -100,71 +100,21 @@ except Exception as e:
 def acMain(ac_version):
     ac.log("Near: is Here!")
     try:
-        global trackLength, nearApp
-        global config, classesConfig, configApp
-        global updateTime
-        global showLogo, showTitle, opacity, showBorder, colorAt, unit
-        global badge, showBadge
-        global fontSizeName, fontSizeTitle, fontSizeTime, fontSizeGap, zoom
+        global trackLength, nearApp, configApp
         global maxDriverCount
         global myDriver, driversFullList
 
-        config = configparser.ConfigParser()
-        config.read("apps/python/near/config/config.ini")
-
-        # Global
-        updateTime = config.getint("GLOBAL", "updateTime")
-
-        showLogo  = config.getint("GLOBAL", "showLogo")
-        showTitle = config.getint("GLOBAL", "showTitle")
-        
-        fontSizeName  = config.getint("GLOBAL", "fontSizeName")
-        fontSizeTitle  = config.getint("GLOBAL", "fontSizeTitle")
-        fontSizeTime  = config.getint("GLOBAL", "fontSizeTime")
-        fontSizeGap  = config.getint("GLOBAL", "fontSizeGap")
-        
-        zoom  = config.getfloat("GLOBAL", "zoom")
-        
-        opacity   = config.getint("GLOBAL", "opacity")
-        showBorder = config.getint("GLOBAL", "showBorder")
-        showBadge = config.getint("GLOBAL", "showBadge")
-        colorAt   = config.getint("GLOBAL", "colorAt")
-        unit      = config.get("GLOBAL", "unit")
-
-        # Get classes
-        classesConfig = configparser.ConfigParser()
-        classesConfig.read("apps/python/near/classes/classes.ini")
-
-        for eachSection in classesConfig.sections():
-            classTmp = []
-            classTmp.append(eachSection)
-            for eachItem in classesConfig.items(eachSection):
-                classTmp.append(eachItem[1])
-            classes.append(classTmp)
-
-        maxDriverCount = ac.getCarsCount()
-
-        # Get badges
-        for i in range(maxDriverCount):
-            carName = ac.getCarName(i)
-            if type(carName) == type(""):
-                textureId = ac.newTexture("content/cars/" + carName + "/ui/badge.png")
-                if textureId >= 0:
-                    badge.append(textureId)
-                else:
-                    badge.append(-1)
-            else:
-                badge.append(-1)
+        loadConfig()
 
         nearApp = NearWindow("Near", "Near")
 
         configApp = Near_config("Near_config", "Near config", fontSizeConfig)
         configApp.updateView()
-
         ac.addRenderCallback(configApp.window, onRenderCallbackConfig)
 
         trackLength = ac.getTrackLength(0)
 
+        maxDriverCount = ac.getCarsCount()
         # Get all needed infos
         for index in range(maxDriverCount):
             driver = {
@@ -374,42 +324,27 @@ class NearWindow:
             self.bestTimeDeltaLabel = []
             self.bestTimeLabel = []
             self.gapTimeLabel = []
+            self.width = 0
+            self.height = 0
 
-            for index in range(2):
+            for _ in range(2):
                 self.positionLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.positionLabel[index], 'left')
-
                 self.nameLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.nameLabel[index], 'left')
-
                 self.lastTimeTitleLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.lastTimeTitleLabel[index], 'left')
-
-                self.lastTimeLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.lastTimeLabel[index], 'left')
-
-                self.lastTimeDeltaLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.lastTimeDeltaLabel[index], 'left')
-
                 self.bestTimeTitleLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.bestTimeTitleLabel[index], 'left')
-
+                self.lastTimeLabel.append(ac.addLabel(self.window, ""))
+                self.lastTimeDeltaLabel.append(ac.addLabel(self.window, ""))
                 self.bestTimeLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.bestTimeLabel[index], 'left')
-
                 self.bestTimeDeltaLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.bestTimeDeltaLabel[index], 'left')
-
                 self.gapTimeLabel.append(ac.addLabel(self.window, ""))
-                ac.setFontAlignment(self.gapTimeLabel[index], 'right')
 
-
-            self.refreshParameters()
+            self.doLayout()
         except Exception as e:
             ac.log("Near: Error in NearWindow constructor: %s" % e)
 
-    def refreshParameters(self):
-        # ac.log("Near: NearWindow refreshParameters")
+    def doLayout(self):
+
+        # ac.log("Near: NearWindow doLayout")
         if showLogo:
             ac.setIconPosition(self.window, 0, 0)
         else:
@@ -431,11 +366,9 @@ class NearWindow:
         self.widthGap = 3*fontSizeGap*zoom
         self.heightGap = 3*fontSizeGap*zoom
 
+        self.hspace = hspace*zoom
         self.vSpaceTime = 0.25*fontSizeTime*zoom
-        self.padding = 0.25*fontSizeTime*zoom
-
-        self.width = 3*self.widthGap + 2*self.padding
-        self.height = self.firstSpacing + 2*(fontSizeName*zoom + self.heightGap) + self.vSpaceTime + 2*self.padding
+        self.padding = padding*zoom
 
         for index in range(2):
 
@@ -447,45 +380,62 @@ class NearWindow:
             # self.bestTimeLabel = []
             # self.gapTimeLabel = []
 
+            ac.setFontAlignment(self.positionLabel[index], 'left')
             ac.setFontSize(self.positionLabel[index], fontSizeName*zoom)
             ac.setSize(self.positionLabel[index], self.widthPositionLabel, fontSizeName*zoom)
             ac.setVisible(self.positionLabel[index], 1)
 
+            ac.setFontAlignment(self.nameLabel[index], 'left')
             ac.setFontSize(self.nameLabel[index], fontSizeName*zoom)
             ac.setSize(self.nameLabel[index], fontSizeName*10*zoom, fontSizeName*zoom)
             ac.setVisible(self.nameLabel[index], 1)
 
+            ac.setFontAlignment(self.lastTimeTitleLabel[index], 'left')
             ac.setFontColor(self.lastTimeTitleLabel[index], 0.314, 0.337, 0.369, 1)
             ac.setFontSize(self.lastTimeTitleLabel[index], fontSizeTitle*zoom)
             ac.setSize(self.lastTimeTitleLabel[index], fontSizeTitle*4*zoom, fontSizeTitle*zoom)
             ac.setVisible(self.lastTimeTitleLabel[index], 1)
 
+            ac.setFontAlignment(self.bestTimeTitleLabel[index], 'left')
             ac.setFontColor(self.bestTimeTitleLabel[index], 0.314, 0.337, 0.369, 1)
             ac.setFontSize(self.bestTimeTitleLabel[index], fontSizeTitle*zoom)
             ac.setSize(self.bestTimeTitleLabel[index], fontSizeTitle*4*zoom, fontSizeTitle*zoom)
             ac.setVisible(self.bestTimeTitleLabel[index], 1)
 
+            ac.setFontAlignment(self.lastTimeLabel[index], 'left')
             ac.setFontSize(self.lastTimeLabel[index], fontSizeTime*zoom)
             ac.setSize(self.lastTimeLabel[index], fontSizeTime*4*zoom, fontSizeTime*zoom)
             ac.setVisible(self.lastTimeLabel[index], 1)
 
+            ac.setFontAlignment(self.lastTimeDeltaLabel[index], 'left')
             ac.setFontSize(self.lastTimeDeltaLabel[index], fontSizeTime*zoom)
             ac.setSize(self.lastTimeDeltaLabel[index], fontSizeTime*4*zoom, fontSizeTime*zoom)
             ac.setVisible(self.lastTimeDeltaLabel[index], 1)
 
+            ac.setFontAlignment(self.bestTimeLabel[index], 'left')
             ac.setFontSize(self.bestTimeLabel[index], fontSizeTime*zoom)
             ac.setSize(self.bestTimeLabel[index], fontSizeTime*4*zoom, fontSizeTime*zoom)
             ac.setVisible(self.bestTimeLabel[index], 1)
 
+            ac.setFontAlignment(self.bestTimeDeltaLabel[index], 'left')
             ac.setFontSize(self.bestTimeDeltaLabel[index], fontSizeTime*zoom)
             ac.setSize(self.bestTimeDeltaLabel[index], fontSizeTime*4*zoom, fontSizeTime*zoom)
             ac.setVisible(self.bestTimeDeltaLabel[index], 1)
 
+            ac.setFontAlignment(self.gapTimeLabel[index], 'right')
             ac.setFontSize(self.gapTimeLabel[index], fontSizeGap*zoom)
             ac.setSize(self.gapTimeLabel[index], self.widthGap, fontSizeGap*zoom)
             ac.setVisible(self.gapTimeLabel[index], 1)
-            
 
+            self.__doLayoutPosition()
+
+        # ac.log("Near: NearWindow doLayout - END")
+
+    def __doLayoutPosition(self):
+
+        self.width = 3*self.widthGap + 2*self.padding + self.hspace
+        self.height = self.firstSpacing + 2*(fontSizeName*zoom + self.heightGap) + self.vSpaceTime + 2*self.padding
+    
         #Driver ahead
         x = self.padding
         y = self.padding + self.firstSpacing
@@ -506,7 +456,7 @@ class NearWindow:
         ac.setPosition(self.bestTimeLabel[0], x , y)
         x += fontSizeTime*4*zoom
         ac.setPosition(self.bestTimeDeltaLabel[0], x, y)
-        x = self.padding + 2*self.widthGap
+        x = self.padding + 2*self.widthGap + self.hspace
         y = self.firstSpacing + self.heightDriverHeaderLabel + 0.33*self.heightGap
         ac.setPosition(self.gapTimeLabel[0], x, y)
 
@@ -525,7 +475,7 @@ class NearWindow:
         ac.setPosition(self.bestTimeLabel[1], x, y)
         x += fontSizeTime*4*zoom
         ac.setPosition(self.bestTimeDeltaLabel[1], x, y)
-        x = self.padding + 2*self.widthGap
+        x = self.padding + 2*self.widthGap + self.hspace
         y = self.firstSpacing + self.heightDriverHeaderLabel + 1.33*self.heightGap
         ac.setPosition(self.gapTimeLabel[1], x , y)
         x = self.padding
@@ -538,8 +488,6 @@ class NearWindow:
         ac.setSize(self.window, self.width, self.height)
         ac.setBackgroundOpacity(self.window, float(opacity)/100)
         ac.drawBorder(self.window, showBorder)
-
-        # ac.log("Near: NearWindow refreshParameters - END")
 
     def updateView(self, standing):
         # ac.log("Near: NearWindow updateView")
@@ -575,12 +523,11 @@ class NearWindow:
                 ac.setText(self.lastTimeTitleLabel[0], "LAST")
                 timeToLabel(self.lastTimeLabel[0], standing[aheadIndex]["lastLapTime"], standing[aheadIndex]["bestLap"])
                 deltaTimeToLabel(self.lastTimeDeltaLabel[0], standing[aheadIndex]["lastLapTime"], standing[myIndex]["lastLapTime"])
-                
+
                 if info.graphics.session == 2:
                     deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
                 else:
                     deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["lapPosition"] - myDriver["lapPosition"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
-            
 
             if info.graphics.session == 2 and myIndex == len(standing) - 1:
                 ac.setText(self.lastTimeTitleLabel[1], "LAST")
@@ -595,11 +542,11 @@ class NearWindow:
             else:
                 ac.setText(self.bestTimeTitleLabel[1], "BEST")
                 timeToLabel(self.bestTimeLabel[1], standing[behindIndex]["bestLap"], standing[behindIndex]["bestLap"])
+                deltaTimeToLabel(self.bestTimeDeltaLabel[1], standing[behindIndex]["bestLap"], standing[myIndex]["bestLap"])
                 ac.setText(self.lastTimeTitleLabel[1], "LAST")
                 timeToLabel(self.lastTimeLabel[1], standing[behindIndex]["lastLapTime"], standing[behindIndex]["bestLap"])
-                deltaTimeToLabel(self.lastTimeDeltaLabel[1], standing[behindIndex]["lastLapTime"], standing[aheadIndex]["lastLapTime"])
-                deltaTimeToLabel(self.bestTimeDeltaLabel[1], standing[behindIndex]["bestLap"], standing[aheadIndex]["bestLap"])
-                
+                deltaTimeToLabel(self.lastTimeDeltaLabel[1], standing[behindIndex]["lastLapTime"], standing[myIndex]["lastLapTime"])
+
                 if info.graphics.session == 2:
                     deltaToLabel(self.gapTimeLabel[1], standing[behindIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
                 else:
@@ -612,6 +559,10 @@ class NearWindow:
         except Exception as e:
             ac.log("Near: Error in NearWindow.updateView: %s" % e)
 
+    # def renderNationFlag(self):
+    #     ac.glColor4f(1,1,1,1)
+    #     ac.glQuadTextured(self.leftOffsets["nationFlag"] + spacing/2, self.topOffset + spacing/2, self.standingsConfig["fontSize"], self.standingsConfig["fontSize"], self.nationFlag)
+
 
 class Near_config:
 
@@ -619,11 +570,13 @@ class Near_config:
         self.window = ac.newApp(name)
         ac.setTitle(self.window, headerName)
 
+        configRows = 10
+
         widthLeft       = fontSize*8
         widthCenter     = fontSize*5
         widthRight      = fontSize*5
         width           = widthLeft + widthCenter + widthRight + 2*spacing
-        height          = firstSpacing + (fontSize*1.5 + spacing)*9
+        height          = firstSpacing + (fontSize*1.5 + spacing)*configRows
 
         ac.setSize(self.window, width, height)
 
@@ -633,7 +586,7 @@ class Near_config:
         self.plusButton = []
         self.minusButton = []
 
-        for index in range(9):
+        for index in range(configRows):
             self.leftLabel.append(ac.addLabel(self.window, ""))
             ac.setFontSize(self.leftLabel[index], fontSize)
             ac.setPosition(self.leftLabel[index], spacing, firstSpacing + index*(fontSize*1.5+spacing))
@@ -667,6 +620,14 @@ class Near_config:
         ac.setVisible(self.changeButton[rowIndex], 0)
         ac.setVisible(self.plusButton[rowIndex], 0)
         ac.setVisible(self.minusButton[rowIndex], 0)
+
+        rowIndex += 1
+
+        ac.setText(self.leftLabel[rowIndex], "Config Index:")
+        ac.setVisible(self.changeButton[rowIndex], 0)
+        ac.addOnClickedListener(self.plusButton[rowIndex], configIndexPlus)
+        ac.addOnClickedListener(self.minusButton[rowIndex], configIndexMinus)
+        self.configIndexId = rowIndex
 
         rowIndex += 1
 
@@ -738,6 +699,7 @@ class Near_config:
         ac.setText(self.centerLabel[self.fontSizeId],  "{:.1f}".format(zoom))
         ac.setText(self.centerLabel[self.opacityId],   "{0} %".format(opacity))
         ac.setText(self.centerLabel[self.showBorderId], yesOrNo(showBorder))
+        ac.setText(self.centerLabel[self.configIndexId], "{:d}".format(configIndex))
 
         if unit == "metric":
             ac.setText(self.centerLabel[self.unitsId], "Metric")
@@ -773,7 +735,7 @@ def toggleLogo(dummy, variable):
     else:
         showLogo = 1
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def toggleTitle(dummy, variable):
     global showTitle
@@ -783,14 +745,14 @@ def toggleTitle(dummy, variable):
     else:
         showTitle = 1
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def fontSizePlus(dummy, variable):
     global zoom
 
     zoom += 0.1
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def fontSizeMinus(dummy, variable):
     global zoom
@@ -798,7 +760,7 @@ def fontSizeMinus(dummy, variable):
     if zoom > 0:
         zoom -= 0.1
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def toggleBorder(dummy, variable):
     global showBorder
@@ -808,7 +770,7 @@ def toggleBorder(dummy, variable):
     else:
         showBorder = 1
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def opacityPlus(dummy, variable):
     global opacity
@@ -816,7 +778,7 @@ def opacityPlus(dummy, variable):
     if opacity < 100:
         opacity += 10
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def opacityMinus(dummy, variable):
     global opacity
@@ -824,7 +786,7 @@ def opacityMinus(dummy, variable):
     if opacity >= 10:
         opacity -= 10
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def toggleDelta(dummy, variable):
     global showDelta
@@ -834,7 +796,7 @@ def toggleDelta(dummy, variable):
     else:
         showDelta = 1
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def colorAtPlus(dummy, variable):
     global colorAt
@@ -842,7 +804,7 @@ def colorAtPlus(dummy, variable):
     if colorAt < 2000:
         colorAt += 50
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def colorAtMinus(dummy, variable):
     global colorAt
@@ -850,7 +812,7 @@ def colorAtMinus(dummy, variable):
     if colorAt >= 100:
         colorAt -= 50
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def toggleUnits(dummy, variable):
     global unit
@@ -862,7 +824,7 @@ def toggleUnits(dummy, variable):
     elif unit == "time":
         unit = "metric"
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def toggleBorderPos(dummy, variable):
     global showBorderPos
@@ -872,7 +834,7 @@ def toggleBorderPos(dummy, variable):
     else:
         showBorderPos = 1
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def refreshPlus(dummy, variable):
     global updateTime
@@ -886,7 +848,7 @@ def refreshPlus(dummy, variable):
     else:
         updateTime = 1000
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
 def refreshMinus(dummy, variable):
     global updateTime
@@ -900,36 +862,67 @@ def refreshMinus(dummy, variable):
     else:
         updateTime = 0
 
-    refreshAndWriteParameters()
+    refreshAndSaveConfig()
 
-def refreshAndWriteParameters():
+def configIndexPlus(dummy, variable):
+    global configIndex
+
+    saveConfig()
+
+    configIndex += 1
+
+    loadConfig()
+    refresh()
+
+def configIndexMinus(dummy, variable):
+    global configIndex
+
+    saveConfig()
+
+    if configIndex >= 2:
+        configIndex -= 1
+
+    loadConfig()
+    refresh()
+
+def refresh():
     try:
-        nearApp.refreshParameters()
-
+        nearApp.doLayout()
         configApp.updateView()
-        writeParameters()
+    except Exception as e:
+        ac.log("Near: Error in refresh: %s" % e)
+
+def refreshAndSaveConfig():
+    try:
+        refresh()
+        saveConfig()
 
     except Exception as e:
-        ac.log("Near: Error in refreshAndWriteParameters: %s" % e)
+        ac.log("Near: Error in refreshAndSaveConfig: %s" % e)
 
-def writeParameters():
+def saveConfig():
     try:
-        config.set("GLOBAL", "updateTime", str(updateTime))
+        ac.log("Save config for index %s" % configIndex)
+        config.set("GLOBAL", "configIndex", str(configIndex))
 
-        config.set("GLOBAL", "showLogo", str(showLogo))
-        config.set("GLOBAL", "showTitle", str(showTitle))
+        config.set(str(configIndex), "updateTime", str(updateTime))
+
+        config.set(str(configIndex), "showLogo", str(showLogo))
+        config.set(str(configIndex), "showTitle", str(showTitle))
         
-        config.set("GLOBAL", "fontSizeName", str(fontSizeName))
-        config.set("GLOBAL", "fontSizeTitle", str(fontSizeTitle))
-        config.set("GLOBAL", "fontSizeTime", str(fontSizeTime))
-        config.set("GLOBAL", "fontSizeGap", str(fontSizeGap))
+        config.set(str(configIndex), "padding", str(padding))
+        config.set(str(configIndex), "hspace", str(hspace))
+        config.set(str(configIndex), "fontSizeName", str(fontSizeName))
+        config.set(str(configIndex), "fontSizeTitle", str(fontSizeTitle))
+        config.set(str(configIndex), "fontSizeTime", str(fontSizeTime))
+        config.set(str(configIndex), "fontSizeGap", str(fontSizeGap))
         
-        config.set("GLOBAL", "zoom", str(zoom))
+        config.set(str(configIndex), "zoom", str(zoom))
         
-        config.set("GLOBAL", "opacity", str(opacity))
-        config.set("GLOBAL", "showBorder", str(showBorder))
-        config.set("GLOBAL", "colorAt", str(colorAt))
-        config.set("GLOBAL", "unit", str(unit))
+        config.set(str(configIndex), "opacity", str(opacity))
+        config.set(str(configIndex), "showBorder", str(showBorder))
+        config.set(str(configIndex), "colorAt", str(colorAt))
+        config.set(str(configIndex), "unit", str(unit))
 
         configFile = open("apps/python/near/config/config.ini", 'w')
         config.write(configFile)
@@ -937,6 +930,43 @@ def writeParameters():
 
     except Exception as e:
         ac.log("Near: Error in writeParameters: %s" % e)
+
+def loadConfig():
+    try:
+        global config, configApp
+        global updateTime
+        global showLogo, showTitle, opacity, showBorder, colorAt, unit, config
+        global fontSizeName, fontSizeTitle, fontSizeTime, fontSizeGap, zoom, padding, hspace
+
+        config = configparser.ConfigParser()
+        config.read("apps/python/near/config/config.ini")
+
+        # Global
+        # configIndex = config.getint("GLOBAL", "configIndex")
+
+        ac.log("Load config for index %s" % configIndex)
+
+        updateTime = config.getint(str(configIndex), "updateTime")
+
+        showLogo  = config.getint(str(configIndex), "showLogo")
+        showTitle = config.getint(str(configIndex), "showTitle")
+
+        padding  = config.getint(str(configIndex), "padding")
+        hspace  = config.getint(str(configIndex), "hspace")
+        fontSizeName  = config.getint(str(configIndex), "fontSizeName")
+        fontSizeTitle  = config.getint(str(configIndex), "fontSizeTitle")
+        fontSizeTime  = config.getint(str(configIndex), "fontSizeTime")
+        fontSizeGap  = config.getint(str(configIndex), "fontSizeGap")
+
+        zoom  = config.getfloat(str(configIndex), "zoom")
+
+        opacity   = config.getint(str(configIndex), "opacity")
+        showBorder = config.getint(str(configIndex), "showBorder")
+        colorAt   = config.getint(str(configIndex), "colorAt")
+        unit      = config.get(str(configIndex), "unit")
+
+    except Exception as e:
+        ac.log("Near: Error in loadParameters: %s" % e)
 
 def onRenderCallbackConfig(deltaT):
     try:
