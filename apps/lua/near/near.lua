@@ -29,26 +29,22 @@ local cfg = ac.storage({
 })
 
 -- ─── Runtime state ────────────────────────────────────────────────────────────
-local sim           = ac.getSim()
-local trackLength   = ac.getTrackLength()
-local fastestLapMs  = 9999999
+local sim             = ac.getSim()
+local trackLength     = ac.getTrackLength()
+local fastestLapMs    = 9999999
 local timeSinceUpdate = 0
 
--- Drivers resolved each update cycle: ahead and behind the player
--- Each entry: { car, racePosition, driverName, nationCode, bestLapMs, lastLapMs, lapDelta, pitStops }
-local driverAhead  = nil
-local driverBehind = nil
+-- Snapshots resolved each update cycle, consumed by script.windowMain.
+-- Fields: carIndex, driverName, nationCode, bestLapMs, lastLapMs, lapTimeMs,
+--         splinePos, lapCount, distance, speedMs, pitStops, isInPit
+local driverAhead  = nil   -- driver immediately ahead of player in standings
+local driverBehind = nil   -- driver immediately behind player in standings
+local playerEntry  = nil   -- player's own snapshot (for gap/delta reference)
 
--- Per-car pit tracking state: indexed by car index
--- { pitEntryFlag, pitStops, raceStartFlag }
+-- Per-car race-start spline correction state, keyed by car index.
+-- Initialised lazily in updateStandings so late-joining cars are handled.
+-- { raceStartFlag: bool } — true until the car has clearly crossed the start line
 local pitState = {}
-
--- ─── Initialization ───────────────────────────────────────────────────────────
--- (replaces acMain — runs once at script load)
-
-for i = 0, sim.carsCount - 1 do
-  pitState[i] = { pitEntryFlag = false, pitStops = 0, raceStartFlag = true }
-end
 
 -- ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,32 +100,87 @@ end
 
 -- ─── Update logic ─────────────────────────────────────────────────────────────
 
--- Collect per-car data, detect pit events, sort standings, resolve ahead/behind.
--- Called from script.update(dt) on the configured interval.
--- TODO: implement
+-- Snapshot of one driver's data captured during updateStandings.
+local function makeEntry(car, distance)
+  return {
+    carIndex   = car.index,
+    driverName = car:driverName(),       -- ac.StateCar method call (CSP FFI)
+    nationCode = car:driverNationCode(), -- 3-letter ISO, e.g. "ITA"
+    bestLapMs  = car.bestLapTimeMs,      -- replaces ac.getCarState(i, acsys.CS.BestLap)
+    lastLapMs  = car.lastLapTimeMs,      -- replaces ac.getCarState(i, acsys.CS.LastLap)
+    lapTimeMs  = car.lapTimeMs,          -- replaces ac.getCarState(i, acsys.CS.LapTime)
+    splinePos  = car.splinePosition,     -- replaces acsys.CS.NormalizedSplinePosition
+    lapCount   = car.lapCount,           -- replaces acsys.CS.LapCount
+    distance   = distance,               -- lapCount + splinePos (corrected at race start)
+    speedMs    = car.speedKmh / 3.6,    -- replaces acsys.CS.SpeedMS
+    pitStops   = car.pitCount,           -- native CSP field; replaces manual pit entry/exit tracking
+    isInPit    = car.isInPit,            -- replaces ac.isCarInPit(i)
+  }
+end
+
+-- Iterates the CSP-sorted leaderboard, builds snapshots, and resolves the
+-- driver immediately ahead and behind the player (car index 0).
+--
+-- Replaces Python's acUpdate sort logic:
+--   - ac.iterateCars.leaderboard() already sorts by distance in race and by
+--     best lap time in practice/qualify — no manual sort needed.
+--   - All car data comes from ac.StateCar FFI fields — no sim_info.py needed.
 local function updateStandings()
-  -- local session = ac.getSession(sim.currentSessionIndex)
-  -- local isRace  = session and session.type == ac.SessionType.Race
+  local session = ac.getSession(sim.currentSessionIndex)
+  local isRace  = session ~= nil and session.type == ac.SessionType.Race
 
-  -- for i = 0, sim.carsCount - 1 do
-  --   local car = ac.getCar(i)
-  --   if car == nil or not car.isConnected then goto continue end
-  --   local ps = pitState[i]
-  --
-  --   -- Update fastest lap
-  --   local best = car.bestLapTimeMs
-  --   if best > 0 and best < 9999999 and best < fastestLapMs then
-  --     fastestLapMs = best
-  --   end
-  --
-  --   -- Race-specific: race start spline correction and pit stop counting
-  --   -- TODO: port raceStartFlag and pitEntryFlag logic
-  --
-  --   ::continue::
-  -- end
+  local leaderboard  = {}
+  local playerPosIdx = -1   -- 1-based index of the player inside leaderboard[]
 
-  -- -- Find player position in leaderboard, then resolve ±1
-  -- -- TODO: iterate ac.iterateCars.leaderboard(), find player (index 0), pick ahead/behind
+  for _, car in ac.iterateCars.leaderboard() do
+    if not car.isConnected then goto continue end
+
+    -- Track session-wide fastest lap (used for purple colour in timeToLabel)
+    local best = car.bestLapTimeMs
+    if best > 0 and best < 9999999 and best < fastestLapMs then
+      fastestLapMs = best
+    end
+
+    -- Race start spline correction (port of Python raceStartFlag logic):
+    -- At lap 0, a car just past the start line has splinePosition > 0.7,
+    -- which would incorrectly rank it behind cars at ~0.1 on the next lap.
+    -- Subtracting 1 normalises its effective distance until it clears the zone.
+    local distance = car.lapCount + car.splinePosition
+    if isRace then
+      if not pitState[car.index] then
+        pitState[car.index] = { raceStartFlag = true }
+      end
+      local ps = pitState[car.index]
+      if ps.raceStartFlag and car.lapCount == 0 then
+        if car.splinePosition > 0.7 then
+          distance = distance - 1.0
+        elseif car.splinePosition > 0.3 then
+          ps.raceStartFlag = false
+        end
+      else
+        ps.raceStartFlag = false
+      end
+    else
+      -- Reset each non-race session so the flag is ready for the next race
+      if pitState[car.index] then
+        pitState[car.index].raceStartFlag = true
+      end
+    end
+
+    local entry = makeEntry(car, distance)
+    table.insert(leaderboard, entry)
+
+    if car.index == 0 then
+      playerPosIdx = #leaderboard
+      playerEntry  = entry
+    end
+
+    ::continue::
+  end
+
+  -- Pick the adjacent entries in sorted order
+  driverAhead  = (playerPosIdx > 1)            and leaderboard[playerPosIdx - 1] or nil
+  driverBehind = (playerPosIdx < #leaderboard) and leaderboard[playerPosIdx + 1] or nil
 end
 
 -- ─── Script entry points ──────────────────────────────────────────────────────
