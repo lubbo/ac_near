@@ -84,27 +84,27 @@ The entire rendering model changes from retained-mode to immediate-mode.
 
 ## 7. Configuration Persistence
 
-- [ ] **Option A (recommended):** Replace `config.ini` + `ConfigParser` with `ac.storage({})` — define defaults in the table, reads/writes are automatic
-- [ ] **Option B (keep INI format):** Use `ac.INIConfig.load(ac.getFolder(ac.FolderID.AppData) .. "/near/config.ini")` for read/write with same INI structure
-- [ ] Preserve multi-preset support: store `currentPreset` index and a table of preset tables in `ac.storage`, or keep numbered `[1]`/`[2]` INI sections with `ac.INIConfig`
+- [X] **Option A (recommended):** Replace `config.ini` + `ConfigParser` with `ac.storage({})` — implemented as `cfg = ac.storage({...})` at script load; all writes auto-persist
+- [~] **Option B (keep INI format):** skipped — Option A chosen
+- [X] Preserve multi-preset support: `cfg.configIndex` stored in `ac.storage`; per-preset values stored as `p{n}_{field}` keys via `savePreset()`/`loadPreset()` helpers
 
 ---
 
 ## 8. Time Formatting & Color Logic
 
-- [ ] Port `timeToLabel(ms)` to Lua — same logic, use `string.format("%d:%05.3f", math.floor(ms/60000), (ms%60000)/1000)` — no library needed
-- [ ] Port `deltaTimeToLabel(ms, bestMs)` color logic — use `ui.pushStyleColor(ui.Col.Text, color)` / `ui.popStyleColor()` to apply purple/green/red/gray
-- [ ] Port `deltaToLabel(gap, unit)` — same math, just Lua syntax
-- [ ] Define `rgbm` color constants for fastest/faster/slower/invalid at top of script
+- [X] Port `timeToLabel(ms)` to Lua — implemented with `string.format("%d:%02d.%03d", ...)` and purple/green/white/grey color returns
+- [X] Port `deltaTimeToLabel(ms, bestMs)` color logic — returns `(str, color)` or `nil`; red/green via `COL_RED`/`COL_GREEN`; applied with `ui.pushStyleColor`/`ui.popStyleColor` in `drawDriverRow`
+- [X] Port `deltaToLabel(gap, unit)` — metric/imperial/time branches ported; uses `cfg.unit` and `trackLength`
+- [X] Define `rgbm` color constants — `COL_GREY`, `COL_PURPLE`, `COL_GREEN`, `COL_RED`, `COL_WHITE`, `COL_LABEL` defined at module level
 
 ---
 
 ## 9. Nation Flags
 
-- [ ] Remove `getNationTexture()` cache function — CSP handles async texture caching automatically
-- [ ] Replace `ac.drawTexture(texture, ...)` calls → `ui.image("res/flags/" .. nationCode:lower() .. ".png", vec2(w, h))`
-- [ ] Copy flag PNGs from original location to `apps/lua/near/res/flags/`
-- [ ] Verify nation code format matches filenames (3-letter ISO vs filename convention)
+- [X] Remove `getNationTexture()` cache function — CSP handles async texture caching automatically
+- [X] Replace `ac.drawTexture(texture, ...)` calls → `ui.image(flagPath(entry.nationCode), vec2(w, h))` via `flagPath()` helper
+- [X] Copy flag PNGs — not needed: `flagPath()` resolves to `ac.getFolder(ac.FolderID.Root) .. "/content/gui/NationFlags/{CODE}.png"`, reusing AC's own flag files
+- [X] Verify nation code format — `car:driverNationCode()` returns uppercase (e.g. "ITA"); AC files are uppercase; `:lower()` removed
 
 ---
 

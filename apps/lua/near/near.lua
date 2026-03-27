@@ -34,6 +34,15 @@ local trackLength     = ac.getTrackLength()
 local fastestLapMs    = 9999999
 local timeSinceUpdate = 0
 
+-- Nation flag path helper.
+-- Reuses the flags already shipped with AC at content/gui/NationFlags/{CODE}.png
+-- (uppercase 3-letter ISO, e.g. "ITA"), so no file copy into res/ is needed.
+-- ac.getFolder(ac.FolderID.Root) returns the AC installation root at runtime.
+local acRoot = ac.getFolder(ac.FolderID.Root)
+local function flagPath(nationCode)
+  return acRoot .. "/content/gui/NationFlags/" .. nationCode .. ".png"
+end
+
 -- Snapshots resolved each update cycle, consumed by script.windowMain.
 -- Fields: carIndex, driverName, nationCode, bestLapMs, lastLapMs, lapTimeMs,
 --         splinePos, lapCount, distance, speedMs, pitStops, isInPit
@@ -164,8 +173,10 @@ local function drawDriverRow(entry, playerEnt, isRace)
     ui.pushFont(ui.Font.Small)
     ui.text(string.format("%d.", entry.racePos or 0))
     ui.sameLine(0, 4 * z)
-    -- Nation flag (CSP handles async load; first frame may show nothing)
-    ui.image("res/flags/" .. entry.nationCode:lower() .. ".png", vec2(flagW, flagH))
+    -- Nation flag — references AC's own NationFlags directory via absolute path.
+    -- CSP handles async texture load; first frame may show nothing.
+    -- No getNationTexture() cache needed — CSP caches internally.
+    ui.image(flagPath(entry.nationCode), vec2(flagW, flagH))
     ui.sameLine(0, 4 * z)
     ui.text(entry.driverName)
     ui.popFont()
