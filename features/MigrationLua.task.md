@@ -27,27 +27,27 @@
 
 ## 3. Car & Session Data
 
-- [ ] Replace `ac.getCarsCount()` → `ac.getSim().carsCount`
-- [ ] Replace `ac.getCarLeaderboardPosition(i)` → `ac.getCar(i).racePosition`
-- [ ] Replace `ac.getCarState(i, acsys.CS.SpeedKMH)` → `ac.getCar(i).speedKmh`
-- [ ] Replace `ac.getCarBestLap(i)` → `ac.getCar(i).bestLapTimeMs`
-- [ ] Replace `ac.getCarLastLap(i)` → `ac.getCar(i).lastLapTimeMs`
-- [ ] Replace `ac.getCarPitCount(i)` → `ac.getCar(i).pitCount`
-- [ ] Replace `ac.getDriverName(i)` → `ac.getCar(i):driverName()`
-- [ ] Replace `ac.getDriverNationCode(i)` → `ac.getCar(i):driverNationCode()`
-- [ ] Replace `sim_info.py` graphics session type → `ac.getSession(ac.getSim().currentSessionIndex)`; compare against `ac.SessionType.Race`, `.Practice`, `.Qualify`
-- [ ] Replace spline position from `sim_info` → `ac.getCar(i).splinePosition`
-- [ ] Replace `ac.getCarIsInPit(i)` / pit lane detection → `ac.getCar(i).isInPit` / `.isInPitlane`
-- [ ] Replace lap count tracking → `ac.getCar(i).lapCount`
-- [ ] Remove `sim_info.py` entirely — all physics/graphics data is available via `ac.getCar()` and `ac.getSim()` FFI structs
+- [X] Replace `ac.getCarsCount()` → `ac.getSim().carsCount`
+- [X] Replace `ac.getCarLeaderboardPosition(i)` → `ac.getCar(i).racePosition`
+- [X] Replace `ac.getCarState(i, acsys.CS.SpeedKMH)` → `ac.getCar(i).speedKmh`
+- [X] Replace `ac.getCarBestLap(i)` → `ac.getCar(i).bestLapTimeMs`
+- [X] Replace `ac.getCarLastLap(i)` → `ac.getCar(i).lastLapTimeMs`
+- [X] Replace `ac.getCarPitCount(i)` → `ac.getCar(i).pitCount`
+- [X] Replace `ac.getDriverName(i)` → `ac.getCar(i):driverName()`
+- [X] Replace `ac.getDriverNationCode(i)` → `ac.getCar(i):driverNationCode()`
+- [X] Replace `sim_info.py` graphics session type → `ac.getSession(ac.getSim().currentSessionIndex)`; compare against `ac.SessionType.Race`, `.Practice`, `.Qualify`
+- [X] Replace spline position from `sim_info` → `ac.getCar(i).splinePosition`
+- [X] Replace `ac.getCarIsInPit(i)` / pit lane detection → `ac.getCar(i).isInPit` / `.isInPitlane`
+- [X] Replace lap count tracking → `ac.getCar(i).lapCount`
+- [X] Remove `sim_info.py` entirely — all physics/graphics data is available via `ac.getCar()` and `ac.getSim()` FFI structs
 
 ---
 
 ## 4. Standings Sort Logic
 
-- [ ] Remove manual sort by spline position for race — use `ac.getCar.leaderboard(n)` iterator which already returns cars in race order
-- [ ] Remove manual sort for practice/qualify — `ac.iterateCars.leaderboard()` sorts by best lap time automatically
-- [ ] Rewrite "find driver ahead / behind player" logic using the leaderboard iterator and `car.racePosition` to find player's position, then index ±1
+- [X] Remove manual sort by spline position for race — use `ac.getCar.leaderboard(n)` iterator which already returns cars in race order
+- [X] Remove manual sort for practice/qualify — `ac.iterateCars.leaderboard()` sorts by best lap time automatically
+- [X] Rewrite "find driver ahead / behind player" logic using the leaderboard iterator and `car.racePosition` to find player's position, then index ±1
 
 ---
 
@@ -55,30 +55,30 @@
 
 The entire rendering model changes from retained-mode to immediate-mode.
 
-- [ ] Remove `NearWindow` class — there are no persistent label/widget objects
-- [ ] Remove all `ac.newLabel()`, `ac.setLabelText()`, `ac.setPosition()`, `ac.setSize()` calls
-- [ ] Rewrite `NearWindow.updateView()` as drawing calls inside `script.windowMain(dt)`:
-  - [ ] Driver name: `ui.text(name)` with `ui.pushStyleColor` for coloring
-  - [ ] Position badge: `ui.text("#" .. pos)` or `ui.drawRectFilled` + `ui.text`
-  - [ ] Nation flag: `ui.image("res/flags/" .. nationCode .. ".png", vec2(w, h))`
-  - [ ] Lap times: `ui.text(timeToLabel(ms))` with color applied via `ui.pushStyleColor`
-  - [ ] Gap: `ui.text(deltaToLabel(gap))`
-  - [ ] Layout: replace absolute x/y pixel placement with `ui.sameLine()`, `ui.offsetCursorX()`, `ui.setCursorY()`, and `ui.availableSpaceX()`
-- [ ] Replace `ac.drawBorder` / window border toggling → `ui.WindowFlags` or `ui.pushStyleVar(ui.StyleVar.WindowBorderSize, 0)`
-- [ ] Replace background opacity setting → `ui.pushStyleVar(ui.StyleVar.Alpha, opacity)` or window background color
+- [X] Remove `NearWindow` class — there are no persistent label/widget objects
+- [X] Remove all `ac.newLabel()`, `ac.setLabelText()`, `ac.setPosition()`, `ac.setSize()` calls
+- [X] Rewrite `NearWindow.updateView()` as drawing calls inside `script.windowMain(dt)`:
+  - [X] Driver name: `ui.text(name)` with `ui.pushStyleColor` for coloring
+  - [X] Position badge: `ui.text("#" .. pos)` or `ui.drawRectFilled` + `ui.text`
+  - [X] Nation flag: `ui.image("res/flags/" .. nationCode .. ".png", vec2(w, h))`
+  - [X] Lap times: `ui.text(timeToLabel(ms))` with color applied via `ui.pushStyleColor`
+  - [X] Gap: `ui.text(deltaToLabel(gap))`
+  - [X] Layout: replace absolute x/y pixel placement with `ui.sameLine()`, `ui.offsetCursorX()`, `ui.setCursorY()`, and `ui.availableSpaceX()`
+- [X] Replace `ac.drawBorder` / window border toggling → `ui.WindowFlags` or `ui.pushStyleVar(ui.StyleVar.WindowBorderSize, 0)`
+- [X] Replace background opacity setting → `ui.pushStyleVar(ui.StyleVar.Alpha, opacity)` or window background color
 
 ---
 
 ## 6. Config UI (Major Rewrite)
 
-- [ ] Remove `Near_config` class
-- [ ] Rewrite config panel as `script.windowSettings()` function using immediate-mode widgets:
-  - [ ] Each row: `ui.text(label)` + `ui.sameLine()` + `ui.slider(...)` or `ui.button("+")` / `ui.button("-")`
-  - [ ] Boolean toggles: `ui.checkbox(label, value)` returning new bool
-  - [ ] Unit cycle: `ui.combo(...)` or three `ui.radioButton(...)` calls
-  - [ ] Config preset selector: `ui.combo("Config", previewName, ...)` or +/- buttons
-- [ ] Remove all individual toggle callbacks (`toggleLogo`, `toggleTitle`, etc.) — widget return values replace them
-- [ ] Remove `refreshAndSaveConfig()` / `refreshConfig()` — use `ac.storage({...})` table which auto-persists, or `ac.INIConfig` if keeping `.ini` format
+- [X] Remove `Near_config` class
+- [X] Rewrite config panel as `script.windowSettings()` function using immediate-mode widgets:
+  - [X] Each row: `ui.text(label)` + `ui.sameLine()` + `ui.slider(...)` or `ui.button("+")` / `ui.button("-")`
+  - [X] Boolean toggles: `ui.checkbox(label, value)` returning new bool
+  - [X] Unit cycle: `ui.combo(...)` or three `ui.radioButton(...)` calls
+  - [X] Config preset selector: `ui.combo("Config", previewName, ...)` or +/- buttons
+- [X] Remove all individual toggle callbacks (`toggleLogo`, `toggleTitle`, etc.) — widget return values replace them
+- [X] Remove `refreshAndSaveConfig()` / `refreshConfig()` — use `ac.storage({...})` table which auto-persists, or `ac.INIConfig` if keeping `.ini` format
 
 ---
 
@@ -87,7 +87,6 @@ The entire rendering model changes from retained-mode to immediate-mode.
 - [ ] **Option A (recommended):** Replace `config.ini` + `ConfigParser` with `ac.storage({})` — define defaults in the table, reads/writes are automatic
 - [ ] **Option B (keep INI format):** Use `ac.INIConfig.load(ac.getFolder(ac.FolderID.AppData) .. "/near/config.ini")` for read/write with same INI structure
 - [ ] Preserve multi-preset support: store `currentPreset` index and a table of preset tables in `ac.storage`, or keep numbered `[1]`/`[2]` INI sections with `ac.INIConfig`
-- [ ] Remove Python `ConfigParser` import and all `config.read()` / `config.get()` / `config.write()` calls
 
 ---
 
@@ -116,11 +115,3 @@ The entire rendering model changes from retained-mode to immediate-mode.
 - [ ] Keep `updateTime` as a user-configurable setting if desired, but it's less necessary
 
 ---
-
-## 11. Cleanup / Removals
-
-- [ ] Delete `near_lib/sim_info.py` — fully replaced by native CSP FFI
-- [ ] Delete `stdlib/` and `stdlib64/` — no ctypes needed
-- [ ] Remove all `acsys` imports — session/state constants are `ac.SessionType.*`, `ac.CarState.*`, etc.
-- [ ] Remove all `ac.newApp()`, `ac.addRenderCallback()`, `ac.setBackgroundOpacity()` Python calls
-- [ ] Remove global mutable state variables — replace with a single config table and local render state

@@ -229,6 +229,32 @@ local function drawDriverRow(entry, playerEnt, isRace)
   ui.endGroup()
 end
 
+-- ─── Preset helpers ───────────────────────────────────────────────────────────
+-- Presets are stored as flat keys in ac.storage: "p{n}_{field}".
+-- This mirrors Python's numbered INI sections [1], [2], etc.
+
+local PRESET_FIELDS = {
+  "updateTime", "showLogo", "showTitle", "showBorder", "showBadge",
+  "opacity", "zoom", "padding", "hspace",
+  "fontSizeName", "fontSizeTitle", "fontSizeTime", "fontSizeGap",
+  "colorAt", "unit",
+}
+
+local function savePreset(idx)
+  for _, k in ipairs(PRESET_FIELDS) do
+    ac.storage["p" .. idx .. "_" .. k] = cfg[k]
+  end
+end
+
+-- Load a preset into cfg. Falls back to current cfg value if no stored value
+-- exists yet (e.g. first time a new preset index is used).
+local function loadPreset(idx)
+  for _, k in ipairs(PRESET_FIELDS) do
+    local v = ac.storage["p" .. idx .. "_" .. k]
+    if v ~= nil then cfg[k] = v end
+  end
+end
+
 -- ─── Update logic ─────────────────────────────────────────────────────────────
 
 -- Snapshot of one driver's data captured during updateStandings.
@@ -352,29 +378,95 @@ function script.windowMain(dt)
   ui.popStyleVar()
 end
 
--- Draws the settings panel (gear icon in window header).
--- TODO: implement — sliders/checkboxes for each cfg field, preset switcher
+-- Draws the settings panel (opened via the gear icon in the window header).
+-- Replaces Near_config class + all individual toggle/plus/minus callbacks.
+-- ac.storage auto-persists cfg values; no explicit save call needed.
 function script.windowSettings()
-  -- local changed = false
+  local w = 180   -- slider width in pixels
 
-  -- changed = ui.checkbox("Show border", cfg.showBorder) or changed
-  -- changed = ui.checkbox("Show badge",  cfg.showBadge)  or changed
-  -- changed = ui.checkbox("Show logo",   cfg.showLogo)   or changed
-  -- changed = ui.checkbox("Show title",  cfg.showTitle)  or changed
+  -- ── Preset selector ────────────────────────────────────────────────────────
+  -- Saves current cfg into the active preset slot, then switches and loads.
+  ui.text("Preset:")
+  ui.sameLine(0, 8)
+  if ui.button(" < ") and cfg.configIndex > 1 then
+    savePreset(cfg.configIndex)
+    cfg.configIndex = cfg.configIndex - 1
+    loadPreset(cfg.configIndex)
+  end
+  ui.sameLine(0, 6)
+  ui.text(tostring(cfg.configIndex))
+  ui.sameLine(0, 6)
+  if ui.button(" > ") then
+    savePreset(cfg.configIndex)
+    cfg.configIndex = cfg.configIndex + 1
+    loadPreset(cfg.configIndex)
+  end
 
-  -- cfg.opacity      = ui.slider("Opacity",     cfg.opacity,      0,   100, "%.0f%%")
-  -- cfg.zoom         = ui.slider("Zoom",        cfg.zoom,         0.5, 3.0, "%.1f")
-  -- cfg.padding      = ui.slider("Padding",     cfg.padding,      0,   30,  "%.0f px")
-  -- cfg.hspace       = ui.slider("H-Spacing",   cfg.hspace,       0,   100, "%.0f px")
-  -- cfg.colorAt      = ui.slider("Color at",    cfg.colorAt,      0,   1000,"%.0f m")
-  -- cfg.updateTime   = ui.slider("Refresh",     cfg.updateTime,   100, 1000,"%.0f ms")
-  -- cfg.fontSizeName = ui.slider("Font: name",  cfg.fontSizeName, 8,   32,  "%.0f")
-  -- cfg.fontSizeTime = ui.slider("Font: time",  cfg.fontSizeTime, 8,   32,  "%.0f")
-  -- cfg.fontSizeGap  = ui.slider("Font: gap",   cfg.fontSizeGap,  8,   48,  "%.0f")
+  ui.separator()
 
-  -- Unit toggle
-  -- TODO: ui.combo or radioButton for cfg.unit ("metric" / "imperial" / "time")
+  -- ── Visibility toggles (replaces toggleLogo/toggleTitle/toggleBorder) ─────
+  cfg.showLogo   = ui.checkbox("Show logo",   cfg.showLogo)
+  cfg.showTitle  = ui.checkbox("Show title",  cfg.showTitle)
+  cfg.showBorder = ui.checkbox("Show border", cfg.showBorder)
+  cfg.showBadge  = ui.checkbox("Show badge",  cfg.showBadge)
 
-  -- Preset selector
-  -- TODO: cfg.configIndex +/- buttons with ac.storage preset tables
+  ui.separator()
+
+  -- ── Numeric sliders ────────────────────────────────────────────────────────
+  -- ui.itemEdited() returns true only on the frame the user releases/commits,
+  -- avoiding constant writes to storage while dragging.
+  local v
+  ui.setNextItemWidth(w)
+  v = ui.slider("Opacity",   cfg.opacity,    0,   100,  "%.0f %%")
+  if ui.itemEdited() then cfg.opacity    = math.floor(v) end
+
+  ui.setNextItemWidth(w)
+  v = ui.slider("Zoom",      cfg.zoom,       0.5, 3.0,  "x %.2f")
+  if ui.itemEdited() then cfg.zoom       = v end
+
+  ui.setNextItemWidth(w)
+  v = ui.slider("Padding",   cfg.padding,    0,   40,   "%.0f px")
+  if ui.itemEdited() then cfg.padding    = math.floor(v) end
+
+  ui.setNextItemWidth(w)
+  v = ui.slider("H-Spacing", cfg.hspace,     0,   150,  "%.0f px")
+  if ui.itemEdited() then cfg.hspace     = math.floor(v) end
+
+  ui.setNextItemWidth(w)
+  v = ui.slider("Color at",  cfg.colorAt,    0,   2000, "%.0f m")
+  if ui.itemEdited() then cfg.colorAt    = math.floor(v) end
+
+  ui.setNextItemWidth(w)
+  v = ui.slider("Refresh",   cfg.updateTime, 50,  1000, "%.0f ms")
+  if ui.itemEdited() then cfg.updateTime = math.floor(v) end
+
+  ui.separator()
+
+  -- ── Font sizes ─────────────────────────────────────────────────────────────
+  ui.setNextItemWidth(w)
+  v = ui.slider("Font: name",  cfg.fontSizeName,  6,  32, "%.0f")
+  if ui.itemEdited() then cfg.fontSizeName  = math.floor(v) end
+
+  ui.setNextItemWidth(w)
+  v = ui.slider("Font: title", cfg.fontSizeTitle, 6,  24, "%.0f")
+  if ui.itemEdited() then cfg.fontSizeTitle = math.floor(v) end
+
+  ui.setNextItemWidth(w)
+  v = ui.slider("Font: time",  cfg.fontSizeTime,  8,  40, "%.0f")
+  if ui.itemEdited() then cfg.fontSizeTime  = math.floor(v) end
+
+  ui.setNextItemWidth(w)
+  v = ui.slider("Font: gap",   cfg.fontSizeGap,   12, 60, "%.0f")
+  if ui.itemEdited() then cfg.fontSizeGap   = math.floor(v) end
+
+  ui.separator()
+
+  -- ── Gap unit cycle (replaces toggleUnits callback) ─────────────────────────
+  local unitLabel = { metric = "Metric", imperial = "Imperial", time = "Time (est.)" }
+  local unitCycle = { metric = "imperial", imperial = "time", time = "metric" }
+  ui.text("Gap unit:")
+  ui.sameLine(0, 8)
+  if ui.button(unitLabel[cfg.unit] or cfg.unit) then
+    cfg.unit = unitCycle[cfg.unit] or "metric"
+  end
 end
