@@ -46,56 +46,187 @@ local playerEntry  = nil   -- player's own snapshot (for gap/delta reference)
 -- { raceStartFlag: bool } — true until the car has clearly crossed the start line
 local pitState = {}
 
+-- ─── Colors ───────────────────────────────────────────────────────────────────
+
+local COL_GREY   = rgbm(0.555, 0.555, 0.555, 1)  -- invalid / no data
+local COL_PURPLE = rgbm(0.8,   0,     1,     1)   -- fastest overall
+local COL_GREEN  = rgbm(0,     1,     0,     1)   -- personal best / faster
+local COL_RED    = rgbm(1,     0,     0,     1)   -- slower
+local COL_WHITE  = rgbm(1,     1,     1,     1)   -- normal
+local COL_LABEL  = rgbm(0.314, 0.337, 0.369, 1)   -- "BEST" / "LAST" title text
+
 -- ─── Helpers ──────────────────────────────────────────────────────────────────
 
 -- Format milliseconds to "M:SS.mmm" string.
--- Returns the formatted string and an rgbm color:
---   purple  = fastest overall, green = personal best, white = normal, grey = invalid
--- TODO: implement (port from Python timeToLabel)
+-- Returns (str, color): purple = fastest overall, green = personal best,
+-- white = normal, grey = invalid.
 local function timeToLabel(ms, personalBestMs)
-  -- if ms <= 0 or ms == 9999999 then return "-:--.---", rgbm(0.555, 0.555, 0.555, 1) end
-  -- local color
-  -- if ms <= fastestLapMs      then color = rgbm(0.8, 0, 1, 1)   -- purple: fastest
-  -- elseif ms <= personalBestMs then color = rgbm(0, 1, 0, 1)    -- green: personal best
-  -- else                             color = rgbm(1, 1, 1, 1) end -- white: normal
-  -- local m   = math.floor(ms / 60000)
-  -- local s   = math.floor((ms % 60000) / 1000)
-  -- local mil = ms % 1000
-  -- return string.format("%d:%02d.%03d", m, s, mil), color
+  if ms <= 0 or ms == 9999999 then
+    return "-:--.---", COL_GREY
+  end
+  local color
+  if ms <= fastestLapMs then
+    color = COL_PURPLE
+  elseif personalBestMs and ms <= personalBestMs then
+    color = COL_GREEN
+  else
+    color = COL_WHITE
+  end
+  local m   = math.floor(ms / 60000)
+  local s   = math.floor((ms % 60000) / 1000)
+  local mil = ms % 1000
+  return string.format("%d:%02d.%03d", m, s, mil), color
 end
 
--- Compute the delta between two lap times and return a signed string and color.
--- Positive delta = time1 is slower (red); negative = faster (green).
--- TODO: implement (port from Python deltaTimeToLabel)
+-- Compute signed lap time delta between two drivers (ms1 − ms2).
+-- Returns (str, color) or nil if either time is invalid.
+-- Positive = ms1 is slower (red); negative = faster (green).
 local function deltaTimeToLabel(ms1, ms2)
-  -- if ms1 <= 0 or ms1 == 9999999 or ms2 <= 0 or ms2 == 9999999 then return "" end
-  -- local delta = ms1 - ms2
-  -- local color = delta > 0 and rgbm(1, 0, 0, 1) or rgbm(0, 1, 0, 1)
-  -- if delta == 0 then return "" end
-  -- return string.format("(%+.1f)", delta / 1000), color
+  if ms1 <= 0 or ms1 == 9999999 or ms2 <= 0 or ms2 == 9999999 then return nil end
+  local delta = ms1 - ms2
+  if delta == 0 then return nil end
+  return string.format("(%+.1f)", delta / 1000), delta > 0 and COL_RED or COL_GREEN
 end
 
--- Convert a spline-position delta to a human-readable gap string.
--- unit: "metric" → metres, "imperial" → ft/mi, "time" → seconds.
--- TODO: implement (port from Python deltaToLabel)
+-- Convert a normalized spline-position delta to a gap string.
+-- cfg.unit: "metric" → metres, "imperial" → ft/mi, "time" → seconds.
 local function deltaToLabel(delta, speedAvgMs)
-  -- if delta > 100 then delta = 0 end
-  -- local distance = delta * trackLength
-  -- if delta > -1 and delta < 1 and trackLength > 0 then
-  --   if cfg.unit == "metric" then
-  --     return string.format("%+.0f m", distance)
-  --   elseif cfg.unit == "imperial" then
-  --     if distance < 1609 then return string.format("%+.0f ft", distance * 3.28)
-  --     else                     return string.format("%+.1f mi", distance / 1609) end
-  --   elseif cfg.unit == "time" then
-  --     local spd = math.max(speedAvgMs, 15)
-  --     return string.format("%+.1f s", -distance / spd)
-  --   end
-  -- elseif delta > -2 and delta < 2 then
-  --   return string.format("%+.1f lap", delta)
-  -- else
-  --   return string.format("%+.1f laps", delta)
-  -- end
+  if delta > 100 then delta = 0 end
+  local distance = delta * trackLength
+  if delta > -1 and delta < 1 and trackLength > 0 then
+    if cfg.unit == "metric" then
+      return string.format("%+.0f m", distance)
+    elseif cfg.unit == "imperial" then
+      if distance < 1609 then
+        return string.format("%+.0f ft", distance * 3.28)
+      else
+        return string.format("%+.1f mi", distance / 1609)
+      end
+    else  -- "time"
+      local spd = math.max(speedAvgMs, 15)
+      return string.format("%+.1f s", -distance / spd)
+    end
+  elseif delta > -2 and delta < 2 then
+    return string.format("%+.1f lap", delta)
+  else
+    return string.format("%+.1f laps", delta)
+  end
+end
+
+-- Draw a single driver row (ahead or behind the player).
+-- Layout (two groups side by side):
+--
+--   LEFT group                        RIGHT group
+--   [pos]  [flag]  [Driver Name]      [GAP  large]
+--          LAST  1:23.456  (+0.3)
+--          BEST  1:22.123  (-0.1)
+--
+-- entry     — snapshot table from updateStandings (nil = player is at boundary)
+-- playerEnt — player snapshot for delta/gap reference
+-- isRace    — true when session type is Race
+local function drawDriverRow(entry, playerEnt, isRace)
+  local z       = cfg.zoom
+  local flagH   = math.floor(cfg.fontSizeName * z)
+  local flagW   = math.floor(flagH * 1.5)
+
+  -- ── Left group: position + flag + name + lap times ────────────────────────
+  ui.beginGroup()
+
+  if entry == nil then
+    -- Player is first (no one ahead) or last (no one behind) in a race
+    ui.pushFont(ui.Font.Small)
+    ui.pushStyleColor(ui.Col.Text, COL_GREY)
+    ui.text("-.")
+    ui.sameLine(0, 4 * z)
+    ui.dummy(vec2(flagW, flagH))
+    ui.sameLine(0, 4 * z)
+    ui.text("---")
+    ui.popStyleColor()
+    ui.popFont()
+
+    ui.pushFont(ui.Font.Tiny)
+    ui.pushStyleColor(ui.Col.Text, COL_LABEL) ui.text("LAST") ui.popStyleColor()
+    ui.popFont()
+    ui.sameLine(0, 4)
+    ui.pushFont(ui.Font.Small)
+    ui.pushStyleColor(ui.Col.Text, COL_GREY) ui.text("-:--.---") ui.popStyleColor()
+    ui.popFont()
+
+    ui.pushFont(ui.Font.Tiny)
+    ui.pushStyleColor(ui.Col.Text, COL_LABEL) ui.text("BEST") ui.popStyleColor()
+    ui.popFont()
+    ui.sameLine(0, 4)
+    ui.pushFont(ui.Font.Small)
+    ui.pushStyleColor(ui.Col.Text, COL_GREY) ui.text("-:--.---") ui.popStyleColor()
+    ui.popFont()
+  else
+    -- Position number
+    ui.pushFont(ui.Font.Small)
+    ui.text(string.format("%d.", entry.racePos or 0))
+    ui.sameLine(0, 4 * z)
+    -- Nation flag (CSP handles async load; first frame may show nothing)
+    ui.image("res/flags/" .. entry.nationCode:lower() .. ".png", vec2(flagW, flagH))
+    ui.sameLine(0, 4 * z)
+    ui.text(entry.driverName)
+    ui.popFont()
+
+    -- LAST lap row
+    local lastStr, lastCol = timeToLabel(entry.lastLapMs, entry.bestLapMs)
+    ui.pushFont(ui.Font.Tiny)
+    ui.pushStyleColor(ui.Col.Text, COL_LABEL) ui.text("LAST") ui.popStyleColor()
+    ui.popFont()
+    ui.sameLine(0, 4)
+    ui.pushFont(ui.Font.Small)
+    ui.pushStyleColor(ui.Col.Text, lastCol) ui.text(lastStr) ui.popStyleColor()
+    local ldStr, ldCol = deltaTimeToLabel(entry.lastLapMs, playerEnt.lastLapMs)
+    if ldStr then
+      ui.sameLine(0, 4)
+      ui.pushStyleColor(ui.Col.Text, ldCol) ui.text(ldStr) ui.popStyleColor()
+    end
+    ui.popFont()
+
+    -- BEST lap row
+    local bestStr, bestCol = timeToLabel(entry.bestLapMs, entry.bestLapMs)
+    ui.pushFont(ui.Font.Tiny)
+    ui.pushStyleColor(ui.Col.Text, COL_LABEL) ui.text("BEST") ui.popStyleColor()
+    ui.popFont()
+    ui.sameLine(0, 4)
+    ui.pushFont(ui.Font.Small)
+    ui.pushStyleColor(ui.Col.Text, bestCol) ui.text(bestStr) ui.popStyleColor()
+    local bdStr, bdCol = deltaTimeToLabel(entry.bestLapMs, playerEnt.bestLapMs)
+    if bdStr then
+      ui.sameLine(0, 4)
+      ui.pushStyleColor(ui.Col.Text, bdCol) ui.text(bdStr) ui.popStyleColor()
+    end
+    ui.popFont()
+  end
+
+  ui.endGroup()
+
+  -- ── Right group: gap (large, vertically centered) ─────────────────────────
+  ui.sameLine(0, cfg.hspace * z)
+  ui.beginGroup()
+
+  if entry ~= nil then
+    local gapDelta = isRace
+      and (entry.distance  - playerEnt.distance)
+      or  (entry.splinePos - playerEnt.splinePos)
+    local gapStr = deltaToLabel(gapDelta, (entry.speedMs + playerEnt.speedMs) / 2)
+    if gapStr then
+      -- Offset down to vertically center the large gap text within the row height.
+      -- Row height ≈ nameRow + 2 × timeRow; gap font is ~2× name font.
+      ui.offsetCursorY(flagH * 0.5)
+      ui.pushFont(ui.Font.Huge)
+      ui.text(gapStr)
+      ui.popFont()
+    end
+  else
+    ui.pushFont(ui.Font.Huge)
+    ui.pushStyleColor(ui.Col.Text, COL_GREY) ui.text("---") ui.popStyleColor()
+    ui.popFont()
+  end
+
+  ui.endGroup()
 end
 
 -- ─── Update logic ─────────────────────────────────────────────────────────────
@@ -194,21 +325,31 @@ function script.update(dt)
   updateStandings()
 end
 
--- Draws the main HUD window. Called every frame by CSP.
--- TODO: implement — draw driverAhead and driverBehind panels side by side
+-- Draws the main HUD window. Called every frame by CSP (immediate-mode).
+-- Replaces NearWindow.updateView() — no retained widgets, no ac.setText calls.
 function script.windowMain(dt)
-  -- if driverAhead == nil and driverBehind == nil then
-  --   ui.text("No data")
-  --   return
-  -- end
+  if playerEntry == nil then
+    ui.pushStyleColor(ui.Col.Text, COL_GREY)
+    ui.text("Waiting for session data...")
+    ui.popStyleColor()
+    return
+  end
 
-  -- Draw ahead driver row
-  -- TODO: drawDriverRow(driverAhead, "▲")
+  -- Apply opacity from config (equivalent to ac.setBackgroundOpacity)
+  ui.pushStyleVar(ui.StyleVar.Alpha, cfg.opacity / 100)
 
-  -- ui.separator()
+  local session = ac.getSession(sim.currentSessionIndex)
+  local isRace  = session ~= nil and session.type == ac.SessionType.Race
 
-  -- Draw behind driver row
-  -- TODO: drawDriverRow(driverBehind, "▼")
+  -- In race: wrap around (first has no one ahead, last has no one behind).
+  -- In practice/qualify: there is always a driver to show (sorted by best lap).
+  drawDriverRow(driverAhead,  playerEntry, isRace)
+
+  ui.separator()
+
+  drawDriverRow(driverBehind, playerEntry, isRace)
+
+  ui.popStyleVar()
 end
 
 -- Draws the settings panel (gear icon in window header).
