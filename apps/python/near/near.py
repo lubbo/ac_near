@@ -65,6 +65,15 @@ trackLength = 0
 lastUpdateTime = 0
 fastestLapTime = 9999999
 
+badge=[]
+livery=[]
+miniSkin=[]
+nationFlags={}
+aheadNationFlagPosition={}
+behindNationFlagPosition={}
+aheadFlagTexture=None
+behindFlagTexture=None
+
 #Apps
 nearApp = 0
 configApp = 0
@@ -111,6 +120,7 @@ def acMain(ac_version):
         configApp = Near_config("Near_config", "Near config", fontSizeConfig)
         configApp.updateView()
         ac.addRenderCallback(configApp.window, onRenderCallbackConfig)
+        ac.addRenderCallback(nearApp.window, onRenderCallbackNear)
 
         trackLength = ac.getTrackLength(0)
 
@@ -121,6 +131,7 @@ def acMain(ac_version):
                 "carId":        index, 
                 "connected":    ac.isConnected(index),
                 "driverName":   ac.getDriverName(index), 
+                "nation":       ac.getDriverNationCode(index),
                 "carName":      ac.getCarName(index),
                 "bestLap":      ac.getCarState(index, acsys.CS.BestLap),
                 "lapTime":      ac.getCarState(index, acsys.CS.LapTime), 
@@ -170,6 +181,7 @@ def acUpdate(deltaT):
             driver = driversFullList[index]
             driver["connected"]   = ac.isConnected(index)
             driver["driverName"]  = ac.getDriverName(index)
+            driver["nation"]      = ac.getDriverNationCode(index)
             driver["carName"]     = ac.getCarName(index)
             driver["bestLap"]     = ac.getCarState(index, acsys.CS.BestLap)
             driver["lapTime"]     = ac.getCarState(index, acsys.CS.LapTime)
@@ -279,6 +291,11 @@ def deltaTimeToLabel(label, time1, time2):
         ac.setFontColor(label, 0, 1, 0, 1)
     else:
         ac.setFontColor(label, 1, 0, 0, 1)
+
+def getNationTexture(nationCode):
+    if not nationCode in nationFlags:
+        nationFlags[nationCode] = ac.newTexture("content/gui/NationFlags/%s.png" % nationCode)
+    return nationFlags[nationCode]
 
 def deltaToLabel(label, delta, speedAvg):
     if delta > 100:
@@ -440,6 +457,13 @@ class NearWindow:
         x = self.padding
         y = self.padding + self.firstSpacing
         ac.setPosition(self.positionLabel[0], x , y)
+        
+        x += self.widthPositionLabel
+        aheadNationFlagPosition['x'] = x
+        aheadNationFlagPosition['y'] = y
+        aheadNationFlagPosition['w'] = self.widthPositionLabel
+        aheadNationFlagPosition['h'] = self.widthPositionLabel
+
         x += self.widthPositionLabel
         ac.setPosition(self.nameLabel[0], x , y)
         x = self.padding
@@ -481,6 +505,13 @@ class NearWindow:
         x = self.padding
         y =  self.firstSpacing + self.heightDriverHeaderLabel + 2*self.heightGap
         ac.setPosition(self.positionLabel[1], x, y)
+        
+        x += self.widthPositionLabel
+        behindNationFlagPosition['x'] = x
+        behindNationFlagPosition['y'] = y
+        behindNationFlagPosition['w'] = self.widthPositionLabel
+        behindNationFlagPosition['h'] = self.widthPositionLabel
+
         x += self.widthPositionLabel
         ac.setPosition(self.nameLabel[1], x, y)
 
@@ -504,6 +535,9 @@ class NearWindow:
             elif myIndex == len(standing) - 1:
                 behindIndex = 0
 
+            driverAhead = standing[aheadIndex]
+            driverBehind = standing[behindIndex]
+
             if info.graphics.session == 2 and myIndex == 0:
                 ac.setText(self.positionLabel[0], "-")
                 ac.setText(self.nameLabel[0], "---")
@@ -516,18 +550,22 @@ class NearWindow:
                 ac.setText(self.gapTimeLabel[0], "---")
             else:
                 ac.setText(self.positionLabel[0], "{0}.".format(aheadIndex+1))
-                ac.setText(self.nameLabel[0], standing[aheadIndex]["driverName"])
+                
+                global aheadFlagTexture
+                aheadFlagTexture = getNationTexture(driverAhead["nation"])
+                
+                ac.setText(self.nameLabel[0], driverAhead["driverName"])
                 ac.setText(self.bestTimeTitleLabel[0], "BEST")
-                timeToLabel(self.bestTimeLabel[0], standing[aheadIndex]["bestLap"], standing[aheadIndex]["bestLap"])
-                deltaTimeToLabel(self.bestTimeDeltaLabel[0], standing[aheadIndex]["bestLap"], standing[myIndex]["bestLap"])
+                timeToLabel(self.bestTimeLabel[0], driverAhead["bestLap"], driverAhead["bestLap"])
+                deltaTimeToLabel(self.bestTimeDeltaLabel[0], driverAhead["bestLap"], myDriver["bestLap"])
                 ac.setText(self.lastTimeTitleLabel[0], "LAST")
-                timeToLabel(self.lastTimeLabel[0], standing[aheadIndex]["lastLapTime"], standing[aheadIndex]["bestLap"])
-                deltaTimeToLabel(self.lastTimeDeltaLabel[0], standing[aheadIndex]["lastLapTime"], standing[myIndex]["lastLapTime"])
+                timeToLabel(self.lastTimeLabel[0], driverAhead["lastLapTime"], driverAhead["bestLap"])
+                deltaTimeToLabel(self.lastTimeDeltaLabel[0], driverAhead["lastLapTime"], myDriver["lastLapTime"])
 
                 if info.graphics.session == 2:
-                    deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                    deltaToLabel(self.gapTimeLabel[0], driverAhead["distance"] - myDriver["distance"], (driverAhead["speedMS"] + myDriver["speedMS"])/2)
                 else:
-                    deltaToLabel(self.gapTimeLabel[0], standing[aheadIndex]["lapPosition"] - myDriver["lapPosition"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                    deltaToLabel(self.gapTimeLabel[0], driverAhead["lapPosition"] - myDriver["lapPosition"], (driverAhead["speedMS"] + myDriver["speedMS"])/2)
 
             if info.graphics.session == 2 and myIndex == len(standing) - 1:
                 ac.setText(self.lastTimeTitleLabel[1], "LAST")
@@ -541,28 +579,27 @@ class NearWindow:
                 ac.setText(self.nameLabel[1], "---")
             else:
                 ac.setText(self.bestTimeTitleLabel[1], "BEST")
-                timeToLabel(self.bestTimeLabel[1], standing[behindIndex]["bestLap"], standing[behindIndex]["bestLap"])
-                deltaTimeToLabel(self.bestTimeDeltaLabel[1], standing[behindIndex]["bestLap"], standing[myIndex]["bestLap"])
+                timeToLabel(self.bestTimeLabel[1], driverBehind["bestLap"], driverBehind["bestLap"])
+                deltaTimeToLabel(self.bestTimeDeltaLabel[1], driverBehind["bestLap"], myDriver["bestLap"])
                 ac.setText(self.lastTimeTitleLabel[1], "LAST")
-                timeToLabel(self.lastTimeLabel[1], standing[behindIndex]["lastLapTime"], standing[behindIndex]["bestLap"])
-                deltaTimeToLabel(self.lastTimeDeltaLabel[1], standing[behindIndex]["lastLapTime"], standing[myIndex]["lastLapTime"])
+                timeToLabel(self.lastTimeLabel[1], driverBehind["lastLapTime"], driverBehind["bestLap"])
+                deltaTimeToLabel(self.lastTimeDeltaLabel[1], driverBehind["lastLapTime"], myDriver["lastLapTime"])
 
                 if info.graphics.session == 2:
-                    deltaToLabel(self.gapTimeLabel[1], standing[behindIndex]["distance"] - myDriver["distance"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                    deltaToLabel(self.gapTimeLabel[1], driverBehind["distance"] - myDriver["distance"], (driverAhead["speedMS"] + myDriver["speedMS"])/2)
                 else:
-                    deltaToLabel(self.gapTimeLabel[1], standing[behindIndex]["lapPosition"] - myDriver["lapPosition"], (standing[aheadIndex]["speedMS"] + myDriver["speedMS"])/2)
+                    deltaToLabel(self.gapTimeLabel[1], driverBehind["lapPosition"] - myDriver["lapPosition"], (driverAhead["speedMS"] + myDriver["speedMS"])/2)
 
                 ac.setText(self.positionLabel[1], "{0}.".format(behindIndex+1))
-                ac.setText(self.nameLabel[1], standing[behindIndex]["driverName"])
+
+                global behindFlagTexture
+                behindFlagTexture = getNationTexture(driverBehind["nation"])
+
+                ac.setText(self.nameLabel[1], driverBehind["driverName"])
 
             # ac.log("Near: NearWindow updateView - END")
         except Exception as e:
             ac.log("Near: Error in NearWindow.updateView: %s" % e)
-
-    # def renderNationFlag(self):
-    #     ac.glColor4f(1,1,1,1)
-    #     ac.glQuadTextured(self.leftOffsets["nationFlag"] + spacing/2, self.topOffset + spacing/2, self.standingsConfig["fontSize"], self.standingsConfig["fontSize"], self.nationFlag)
-
 
 class Near_config:
 
@@ -967,6 +1004,15 @@ def loadConfig():
 
     except Exception as e:
         ac.log("Near: Error in loadParameters: %s" % e)
+
+def onRenderCallbackNear(deltaT):
+    try:
+        if aheadFlagTexture:
+            ac.glQuadTextured(aheadNationFlagPosition['x'], aheadNationFlagPosition['y'], aheadNationFlagPosition['w'], aheadNationFlagPosition['h'], aheadFlagTexture)
+        if behindFlagTexture:
+            ac.glQuadTextured(behindNationFlagPosition['x'], behindNationFlagPosition['y'], behindNationFlagPosition['w'], behindNationFlagPosition['h'], behindFlagTexture)
+    except Exception as e:
+        ac.log("Near: Error in onRenderCallbackNear: %s" % e)
 
 def onRenderCallbackConfig(deltaT):
     try:
