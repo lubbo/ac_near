@@ -133,7 +133,7 @@ local function prepareLayout(entry, playerEnt)
   local last, lastColor = timeToLabel(entry.lastLapMs, entry.bestLapMs)
   local lastDelta, lastDeltaColor = deltaTimeToLabel(entry.lastLapMs, playerEnt.lastLapMs)
   local gap = deltaToLabel(playerEnt.carIndex,entry.carIndex)
-  local gapColor = entry.performanceMeterSpeedDifferenceMs > 0 and COL_RED or COL_GREEN
+  local gapColor = entry ~= nil and entry.performanceMeterSpeedDifferenceMs ~= nil and entry.performanceMeterSpeedDifferenceMs > 0 and COL_RED or COL_GREEN
 
   local positionSize = ui.measureDWriteText(position,nameFontSize)
   local nameSize = ui.measureDWriteText(name,nameFontSize)
