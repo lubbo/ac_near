@@ -62,3 +62,7 @@ The file has a `[GLOBAL]` section (active config index) and numbered preset sect
 | `showLogo/Title/Border/Badge` | Boolean visibility toggles |
 
 Multiple presets allow switching layouts without restarting AC.
+
+## CSP LUA Reference
+
+Documentation starting point for SDK in LUA is available in the `./CSP_LUA.md` 
