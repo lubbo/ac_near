@@ -9,15 +9,15 @@
 
 -- ─── Config defaults ──────────────────────────────────────────────────────────
 -- Persisted automatically by ac.storage; edit defaults here for first run.
-local cfg = ac.storage({
-  updateTime   = 300,     -- refresh interval in ms
-  zoom         = 1.2,
-  hspace       = 0,       -- horizontal spacing between columns
-  fontSizeName = 12,
+local cfg             = ac.storage({
+  updateTime    = 300, -- refresh interval in ms
+  zoom          = 1.2,
+  hspace        = 0,  -- horizontal spacing between columns
+  fontSizeName  = 12,
   fontSizeTitle = 8,
-  fontSizeTime = 16,
-  fontSizeGap  = 28,
-  configIndex  = 1,       -- active preset index
+  fontSizeTime  = 16,
+  fontSizeGap   = 28,
+  configIndex   = 1, -- active preset index
 })
 
 -- ─── Runtime state ────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ local timeSinceUpdate = 0
 -- Reuses the flags already shipped with AC at content/gui/NationFlags/{CODE}.png
 -- (uppercase 3-letter ISO, e.g. "ITA"), so no file copy into res/ is needed.
 -- ac.getFolder(ac.FolderID.Root) returns the AC installation root at runtime.
-local acRoot = ac.getFolder(ac.FolderID.Root)
+local acRoot          = ac.getFolder(ac.FolderID.Root)
 local function flagPath(nationCode)
   return nationCode ~= nil and acRoot .. "/content/gui/NationFlags/" .. nationCode .. ".png" or nil
 end
@@ -37,23 +37,23 @@ end
 -- Snapshots resolved each update cycle, consumed by script.windowMain.
 -- Fields: carIndex, driverName, nationCode, bestLapMs, lastLapMs, lapTimeMs,
 --         splinePos, lapCount, pitStops, isInPit
-local driverAhead  = nil   -- driver immediately ahead of player in standings
-local driverBehind = nil   -- driver immediately behind player in standings
-local playerEntry  = nil   -- player's own snapshot (for gap/delta reference)
+local driverAhead  = nil -- driver immediately ahead of player in standings
+local driverBehind = nil -- driver immediately behind player in standings
+local playerEntry  = nil -- player's own snapshot (for gap/delta reference)
 
 -- Per-car race-start spline correction state, keyed by car index.
 -- Initialised lazily in updateStandings so late-joining cars are handled.
 -- { raceStartFlag: bool } — true until the car has clearly crossed the start line
-local pitState = {}
+local pitState     = {}
 
 -- ─── Colors ───────────────────────────────────────────────────────────────────
 
-local COL_GREY   = rgbm(0.555, 0.555, 0.555, 1)  -- invalid / no data
-local COL_PURPLE = rgbm(0.8,   0,     1,     1)   -- fastest overall
-local COL_GREEN  = rgbm(0,     1,     0,     1)   -- personal best / faster
-local COL_RED    = rgbm(1,     0,     0,     1)   -- slower
-local COL_WHITE  = rgbm(1,     1,     1,     1)   -- normal
-local COL_LABEL  = rgbm(0.314, 0.337, 0.369, 1)   -- "BEST" / "LAST" title text
+local COL_GREY     = rgbm(0.555, 0.555, 0.555, 1) -- invalid / no data
+local COL_PURPLE   = rgbm(0.8, 0, 1, 1)         -- fastest overall
+local COL_GREEN    = rgbm(0, 1, 0, 1)           -- personal best / faster
+local COL_RED      = rgbm(1, 0, 0, 1)           -- slower
+local COL_WHITE    = rgbm(1, 1, 1, 1)           -- normal
+local COL_LABEL    = rgbm(0.314, 0.337, 0.369, 1) -- "BEST" / "LAST" title text
 
 -- ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -93,11 +93,32 @@ end
 -- Returns the time gap between two cars as a formatted string (e.g. "+2.3 s").
 -- Uses ac.getGapBetweenCars(playerIdx, otherIdx) which returns seconds directly.
 -- Returns nil if the gap is unavailable (e.g. no completed lap yet — returns math.huge).
-local function deltaToLabel(playerCarIdx, otherCarIdx)
-  if otherCarIdx == nil then return "-" end
-  local gap = ac.getGapBetweenCars(otherCarIdx,playerCarIdx)
-  if gap == nil then return "-" end
-  return string.format("%+.1f s", gap)
+local function deltaToLabel(playerEnt, entry)
+  if entry == nil or playerEnt == nil then return nil end
+
+  local session     = ac.getSession(sim.currentSessionIndex)
+  local isRace      = session ~= nil and session.type == ac.SessionType.Race
+
+  local delta       = isRace
+      and ((entry.lapCount or entry.sessionLapCount) + entry.splinePos - ((playerEnt.lapCount or playerEnt.sessionLapCount) + playerEnt.splinePos))
+      or (entry.splinePos - playerEnt.splinePos)
+
+  local trackLength = ac.getSim().trackLengthM
+  local speedAvgMs  = (entry.speedMs + playerEnt.speedMs) / 2
+  if delta > 100 then delta = 0 end
+  local distance = delta * trackLength
+  if delta > -1 and delta < 1 and trackLength > 0 then
+    local spd = math.max(speedAvgMs, 15)
+    return string.format("%+.1f s", -distance / spd)
+  elseif delta > -2 and delta < 2 then
+    return string.format("%+.1f lap", delta)
+  else
+    return string.format("%+.1f laps", delta)
+  end
+
+  -- local gap = ac.getGapBetweenCars(entry.idx,playerEnt.idx)
+  -- if gap == nil then return "-" end
+  -- return string.format("%+.1f s", gap)
 end
 
 -- local placeholderLast  = '--:--.---'
@@ -117,42 +138,46 @@ local function computeScaleForWindow()
 end
 
 local function prepareLayout(entry, playerEnt)
-
   ui.pushDWriteFont('@System')
-  local zoom       = cfg.zoom
-  local horizontalSpacer = 4 * zoom
-  local nameFontSize  = cfg.fontSizeName  * zoom
-  local titleFontSize = cfg.fontSizeTitle * zoom
-  local timeFontSize  = cfg.fontSizeTime  * zoom
-  local gapFontSize   = cfg.fontSizeGap   * zoom
 
-  local name = entry.driverName or ""
-  local position = entry.racePos ~= nil and string.format("%d.", entry.racePos or 0) or "-."
-  local best, bestColor = timeToLabel(entry.bestLapMs, entry.bestLapMs)
-  local bestDelta, bestDeltaColor = deltaTimeToLabel(entry.bestLapMs, playerEnt.bestLapMs)
-  local last, lastColor = timeToLabel(entry.lastLapMs, entry.bestLapMs)
-  local lastDelta, lastDeltaColor = deltaTimeToLabel(entry.lastLapMs, playerEnt.lastLapMs)
-  local gap = deltaToLabel(playerEnt.carIndex,entry.carIndex)
-  local gapColor = entry ~= nil and entry.performanceMeterSpeedDifferenceMs ~= nil and entry.performanceMeterSpeedDifferenceMs > 0 and COL_RED or COL_GREEN
+  local otherDriver = entry or {}
 
-  local positionSize = ui.measureDWriteText(position,nameFontSize)
-  local nameSize = ui.measureDWriteText(name,nameFontSize)
-  local flagSize = vec2(math.floor(nameSize.y),math.floor(math.floor(nameSize.y) * 1.2))
-  local driverSize = vec2(nameSize.x + positionSize.x + horizontalSpacer * 2 + flagSize.x , nameSize.y)
+  local zoom                      = cfg.zoom
+  local horizontalSpacer          = 4 * zoom
+  local nameFontSize              = cfg.fontSizeName * zoom
+  local titleFontSize             = cfg.fontSizeTitle * zoom
+  local timeFontSize              = cfg.fontSizeTime * zoom
+  local gapFontSize               = cfg.fontSizeGap * zoom
 
-  local titleSize = ui.measureDWriteText("BEST",titleFontSize)
+  local name                      = otherDriver.driverName or ""
+  local position                  = otherDriver.racePosition ~= nil and string.format("%d.", otherDriver.racePosition or 0) or "-."
+  local best, bestColor           = timeToLabel(otherDriver.bestLapMs, otherDriver.bestLapMs)
+  local bestDelta, bestDeltaColor = deltaTimeToLabel(playerEnt.bestLapMs, otherDriver.bestLapMs)
+  local last, lastColor           = timeToLabel(otherDriver.lastLapMs, otherDriver.bestLapMs)
+  local lastDelta, lastDeltaColor = deltaTimeToLabel(playerEnt.lastLapMs, otherDriver.lastLapMs)
 
-  local bestSize = ui.measureDWriteText(best,timeFontSize)
-  local bestDeltaSize = ui.measureDWriteText(bestDelta,timeFontSize)
-  local bestLineSize = vec2(bestSize.x + horizontalSpacer + bestDeltaSize.x, math.max(bestSize.y,bestDeltaSize.y))
+  local gap                       = deltaToLabel(playerEnt, entry)
+  local gapColor                  = COL_WHITE
+  local positionSize              = ui.measureDWriteText(position, nameFontSize)
+  local nameSize                  = ui.measureDWriteText(name, nameFontSize)
+  local flagSize                  = vec2(math.floor(nameSize.y), math.floor(math.floor(nameSize.y) * 1.2))
+  local driverSize                = vec2(nameSize.x + positionSize.x + horizontalSpacer * 2 + flagSize.x, nameSize.y)
 
-  local lastSize = ui.measureDWriteText(last,timeFontSize)
-  local lastDeltaSize = ui.measureDWriteText(lastDelta,timeFontSize)
-  local lastLineSize = vec2(bestSize.x + horizontalSpacer + bestDeltaSize.x, math.max(lastSize.y,lastDeltaSize.y))
+  local titleSize                 = ui.measureDWriteText("BEST", titleFontSize)
 
-  local leftSectionSize = vec2(
-    math.max( titleSize.x, bestLineSize.x, lastLineSize.x),
-    titleSize.y + bestLineSize.y + titleSize.y + lastLineSize.y )
+  local bestSize                  = ui.measureDWriteText(best, timeFontSize)
+  local bestDeltaSize             = ui.measureDWriteText(bestDelta, timeFontSize)
+  local bestLineSize              = vec2(bestSize.x + horizontalSpacer + bestDeltaSize.x,
+    math.max(bestSize.y, bestDeltaSize.y))
+
+  local lastSize                  = ui.measureDWriteText(last, timeFontSize)
+  local lastDeltaSize             = ui.measureDWriteText(lastDelta, timeFontSize)
+  local lastLineSize              = vec2(bestSize.x + horizontalSpacer + bestDeltaSize.x,
+    math.max(lastSize.y, lastDeltaSize.y))
+
+  local leftSectionSize           = vec2(
+    math.max(titleSize.x, bestLineSize.x, lastLineSize.x),
+    titleSize.y + bestLineSize.y + titleSize.y + lastLineSize.y)
 
   ui.popDWriteFont()
 
@@ -161,7 +186,7 @@ local function prepareLayout(entry, playerEnt)
     horizontalSpacer = horizontalSpacer,
     name = name,
     position = position,
-    flagPath = flagPath(entry.nationCode),
+    flagPath = flagPath(otherDriver.nationCode),
     flagSize = flagSize,
     best = best,
     bestColor = bestColor,
@@ -199,57 +224,58 @@ end
 -- entry     — snapshot table from updateStandings (nil = player is at boundary)
 -- playerEnt — player snapshot for delta/gap reference
 local function drawDriverRow(layout, previousLayout)
-
   ui.pushDWriteFont('@System')
 
   -- ── Left group: position + flag + name + lap times ────────────────────────
   ui.beginGroup()
 
-    ui.dwriteText(layout.position, layout.nameFontSize, COL_WHITE)
-    ui.sameLine(0, layout.horizontalSpacer)
-    ui.image(layout.flagPath, layout.flagSize)
-    ui.sameLine(0, layout.horizontalSpacer)
-    ui.dwriteText(layout.name, layout.nameFontSize, COL_WHITE)
+  ui.dwriteText(layout.position, layout.nameFontSize, COL_WHITE)
+  ui.sameLine(0, layout.horizontalSpacer)
+  ui.image(layout.flagPath, layout.flagSize)
+  ui.sameLine(0, layout.horizontalSpacer)
+  ui.dwriteText(layout.name, layout.nameFontSize, COL_WHITE)
 
-    -- LAST lap row
-    ui.dwriteText("LAST", layout.titleFontSize, COL_LABEL)
-    ui.dwriteText(layout.last, layout.timeFontSize, layout.lastColor)
-    if layout.lastDelta then
-      ui.sameLine(0, layout.horizontalSpacer)
-      ui.dwriteText(layout.lastDelta, layout.timeFontSize, layout.lastDeltaColor)
-    end
+  -- LAST lap row
+  ui.dwriteText("LAST", layout.titleFontSize, COL_LABEL)
+  ui.dwriteText(layout.last, layout.timeFontSize, layout.lastColor)
+  if layout.lastDelta then
+    ui.sameLine(0, layout.horizontalSpacer)
+    ui.dwriteText(layout.lastDelta, layout.timeFontSize, layout.lastDeltaColor)
+  end
 
-    -- BEST lap row
-    ui.dwriteText("BEST", layout.titleFontSize, COL_LABEL)
-    ui.dwriteText(layout.best, layout.timeFontSize, layout.bestColor)
-    if layout.bestDelta then
-      ui.sameLine(0, layout.horizontalSpacer)
-      ui.dwriteText(layout.bestDelta, layout.timeFontSize, layout.bestDeltaColor)
-    end
+  -- BEST lap row
+  ui.dwriteText("BEST", layout.titleFontSize, COL_LABEL)
+  ui.dwriteText(layout.best, layout.timeFontSize, layout.bestColor)
+  if layout.bestDelta then
+    ui.sameLine(0, layout.horizontalSpacer)
+    ui.dwriteText(layout.bestDelta, layout.timeFontSize, layout.bestDeltaColor)
+  end
 
   ui.endGroup()
 
-  local maxLeftSectionWitdh = previousLayout.leftSectionSize ~= nil and math.max(previousLayout.leftSectionSize.x, layout.leftSectionSize.x) or layout.leftSectionSize.x
+  local maxLeftSectionWitdh = previousLayout.leftSectionSize ~= nil and
+  math.max(previousLayout.leftSectionSize.x, layout.leftSectionSize.x) or layout.leftSectionSize.x
   ui.sameLine(maxLeftSectionWitdh, cfg.hspace * layout.zoom)
-  local maxGapSizeWidth = previousLayout.gap ~= nil and math.max(ui.measureDWriteText(previousLayout.gap,previousLayout.gapFontSize).x, ui.measureDWriteText(layout.gap,layout.gapFontSize).x) or ui.measureDWriteText(layout.gap,layout.gapFontSize).x
+  local maxGapSizeWidth = previousLayout.gap ~= nil and
+  math.max(ui.measureDWriteText(previousLayout.gap, previousLayout.gapFontSize).x,
+    ui.measureDWriteText(layout.gap, layout.gapFontSize).x) or ui.measureDWriteText(layout.gap, layout.gapFontSize).x
 
   ui.beginGroup()
   ui.offsetCursorY(layout.titleSize.y * 2)
 
   ui.dwriteTextAligned(
-    layout.gap,
+    layout.gap or "-",
     layout.gapFontSize,
     ui.Alignment.End,
     ui.Alignment.Center,
     vec2(maxGapSizeWidth, layout.leftSectionSize.y),
     false,
-    string.len(layout.gap) > 1 and layout.gapColor or COL_GREY
+    layout.gap ~= nil and layout.gapColor or COL_GREY
   )
 
   ui.endGroup()
 
   ui.popDWriteFont()
-
 end
 
 
@@ -282,39 +308,52 @@ end
 
 -- Snapshot of one driver's data captured during updateStandings.
 local function makeEntry(car)
+  -- ac.log("p",car.index, car.racePosition, car:driverName())
   return {
-    carIndex   = car.index,
-    driverName = car:driverName(),        -- ac.StateCar method call (CSP FFI)
-    nationCode = car:driverNationCode(),  -- 3-letter ISO, e.g. "ITA"
-    bestLapMs  = car.bestLapTimeMs,       -- replaces ac.getCarState(i, acsys.CS.BestLap)
-    lastLapMs  = car.previousLapTimeMs,   -- replaces ac.getCarState(i, acsys.CS.LastLap)
-    lapTimeMs  = car.lapTimeMs,           -- replaces ac.getCarState(i, acsys.CS.LapTime)
-    splinePos  = car.splinePosition,      -- replaces acsys.CS.NormalizedSplinePosition
-    lapCount   = car.lapCount,            -- replaces acsys.CS.LapCount
-    isInPit    = car.isInPit,             -- replaces ac.isCarInPit(i)
-    estimatedLapTimeMs = car.estimatedLapTimeMs, -- integer @Based on best lap and performance meter (delta of this lap time vs best lap time).
-    performanceMeter = car.performanceMeter, -- number @Performance meter comparing this lap with best, seconds.
+    carIndex                          = car.index,
+    racePosition                      = car.racePosition,
+    driverName                        = car:driverName(),                      -- ac.StateCar method call (CSP FFI)
+    nationCode                        = car:driverNationCode(),                -- 3-letter ISO, e.g. "ITA"
+    bestLapMs                         = car.bestLapTimeMs,                     -- replaces ac.getCarState(i, acsys.CS.BestLap)
+    lastLapMs                         = car.previousLapTimeMs,                 -- replaces ac.getCarState(i, acsys.CS.LastLap)
+    lapTimeMs                         = car.lapTimeMs,                         -- replaces ac.getCarState(i, acsys.CS.LapTime)
+    splinePos                         = car.splinePosition,                    -- replaces acsys.CS.NormalizedSplinePosition
+    lapCount                          = car.lapCount or 0,                          -- replaces acsys.CS.LapCount
+    sessionLapCount                   = car.sessionLapCount or 0,                          -- replaces acsys.CS.LapCount
+    isInPit                           = car.isInPit,                           -- replaces ac.isCarInPit(i)
+    estimatedLapTimeMs                = car.estimatedLapTimeMs,                -- integer @Based on best lap and performance meter (delta of this lap time vs best lap time).
+    performanceMeter                  = car.performanceMeter,                  -- number @Performance meter comparing this lap with best, seconds.
     performanceMeterSpeedDifferenceMs = car.performanceMeterSpeedDifferenceMs, -- number @In AC performance app, there is that red/green bar, it shows this value.
+    speedMs                           = car.speedMs,
   }
 end
 
--- Iterates the CSP-sorted leaderboard, builds snapshots, and resolves the
--- driver immediately ahead and behind the player (car index 0).
---
--- Replaces Python's acUpdate sort logic:
---   - ac.iterateCars.leaderboard() already sorts by distance in race and by
---     best lap time in practice/qualify — no manual sort needed.
---   - All car data comes from ac.StateCar FFI fields — no sim_info.py needed.
 local function updateStandings()
-  local session = ac.getSession(sim.currentSessionIndex)
-  local isRace  = session ~= nil and session.type == ac.SessionType.Race
+  local session      = ac.getSession(sim.currentSessionIndex)
+  local isRace       = session ~= nil and session.type == ac.SessionType.Race
 
   local leaderboard  = {}
-  local playerPosIdx = -1   -- 1-based index of the player inside leaderboard[]
+  local playerPosIdx = -1 -- 1-based index of the player inside leaderboard[]
 
+  local cars = {}
   for _, car in ac.iterateCars.leaderboard() do
-    if not car.isConnected then goto continue end
+    cars[#cars + 1] = car
+  end
 
+  local filteredCars = table.filter(cars, function(a,_)
+    return not a.isInPit
+  end)
+
+  
+  table.sort(filteredCars, function(a, b)
+    if isRace then
+      return (a.lapCount or a.sessionLapCount) + a.splinePosition > (b.lapCount or b.sessionLapCount) + b.splinePosition
+    else
+      return a.splinePosition > b.splinePosition
+    end
+  end)
+  
+  for idx, car in ipairs(filteredCars) do
     -- Track session-wide fastest lap (used for purple colour in timeToLabel)
     local best = car.bestLapTimeMs
     if best > 0 and best < 9999999 and best < fastestLapMs then
@@ -341,18 +380,17 @@ local function updateStandings()
 
     local entry = makeEntry(car)
     table.insert(leaderboard, entry)
-
+    
     if car.index == 0 then
-      playerPosIdx = #leaderboard
+      playerPosIdx = idx
       playerEntry  = entry
     end
-
-    ::continue::
   end
-
+  
   -- Pick the adjacent entries in sorted order
-  driverAhead  = (playerPosIdx > 1)            and leaderboard[playerPosIdx - 1] or nil
+  driverAhead  = (playerPosIdx > 1) and leaderboard[playerPosIdx - 1] or nil
   driverBehind = (playerPosIdx < #leaderboard) and leaderboard[playerPosIdx + 1] or nil
+
 end
 
 -- ─── Script entry points ──────────────────────────────────────────────────────
@@ -374,22 +412,21 @@ function script.windowMain(dt)
     return
   end
 
-  local aheadLayout = prepareLayout(driverAhead ~= nil and driverAhead or {}, playerEntry)
-  local behindLayout = prepareLayout(driverBehind ~= nil and driverBehind or {}, playerEntry)
+  local aheadLayout = prepareLayout(driverAhead ~= nil and driverAhead or nil, playerEntry)
+  local behindLayout = prepareLayout(driverBehind ~= nil and driverBehind or nil, playerEntry)
 
   drawDriverRow(aheadLayout ~= nil and aheadLayout or {}, {})
 
   ui.separator()
 
   drawDriverRow(behindLayout ~= nil and behindLayout or {}, aheadLayout)
-
 end
 
 -- Draws the settings panel (opened via the gear icon in the window header).
 -- Replaces Near_config class + all individual toggle/plus/minus callbacks.
 -- ac.storage auto-persists cfg values; no explicit save call needed.
 function script.windowSettings()
-  local w = 180   -- slider width in pixels
+  local w = 180 -- slider width in pixels
 
   -- ── Preset selector ────────────────────────────────────────────────────────
   -- Saves current cfg into the active preset slot, then switches and loads.
@@ -415,34 +452,33 @@ function script.windowSettings()
   local v, changed
 
   ui.setNextItemWidth(w)
-  v, changed = ui.slider("Zoom",      cfg.zoom,       0.5, 3.0,  "x %.2f")
-  if changed then cfg.zoom       = v end
+  v, changed = ui.slider("Zoom", cfg.zoom, 0.5, 3.0, "x %.2f")
+  if changed then cfg.zoom = v end
 
   ui.setNextItemWidth(w)
-  v, changed = ui.slider("H-Spacing", cfg.hspace,     0,   150,  "%.0f px")
-  if changed then cfg.hspace     = math.floor(v) end
+  v, changed = ui.slider("H-Spacing", cfg.hspace, 0, 150, "%.0f px")
+  if changed then cfg.hspace = math.floor(v) end
 
   ui.setNextItemWidth(w)
-  v, changed = ui.slider("Refresh",   cfg.updateTime, 50,  1000, "%.0f ms")
+  v, changed = ui.slider("Refresh", cfg.updateTime, 50, 1000, "%.0f ms")
   if changed then cfg.updateTime = math.floor(v) end
 
   ui.separator()
 
   -- ── Font sizes ─────────────────────────────────────────────────────────────
   ui.setNextItemWidth(w)
-  v, changed = ui.slider("Font: name",  cfg.fontSizeName,  6,  32, "%.0f")
-  if changed then cfg.fontSizeName  = math.floor(v) end
+  v, changed = ui.slider("Font: name", cfg.fontSizeName, 6, 32, "%.0f")
+  if changed then cfg.fontSizeName = math.floor(v) end
 
   ui.setNextItemWidth(w)
-  v, changed = ui.slider("Font: title", cfg.fontSizeTitle, 6,  24, "%.0f")
+  v, changed = ui.slider("Font: title", cfg.fontSizeTitle, 6, 24, "%.0f")
   if changed then cfg.fontSizeTitle = math.floor(v) end
 
   ui.setNextItemWidth(w)
-  v, changed = ui.slider("Font: time",  cfg.fontSizeTime,  8,  40, "%.0f")
-  if changed then cfg.fontSizeTime  = math.floor(v) end
+  v, changed = ui.slider("Font: time", cfg.fontSizeTime, 8, 40, "%.0f")
+  if changed then cfg.fontSizeTime = math.floor(v) end
 
   ui.setNextItemWidth(w)
-  v, changed = ui.slider("Font: gap",   cfg.fontSizeGap,   12, 60, "%.0f")
-  if changed then cfg.fontSizeGap   = math.floor(v) end
-
+  v, changed = ui.slider("Font: gap", cfg.fontSizeGap, 12, 60, "%.0f")
+  if changed then cfg.fontSizeGap = math.floor(v) end
 end
