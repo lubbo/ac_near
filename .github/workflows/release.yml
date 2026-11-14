@@ -1,0 +1,66 @@
+name: Release
+
+# Every push to main — which includes merges of pull requests — publishes a
+# GitHub release with a zip of the Near app.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+# Never run two release jobs at once (e.g. back-to-back merges).
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Read version from manifest
+        id: manifest
+        run: |
+          manifest="apps/lua/near/manifest.ini"
+
+          version=$(grep -iE '^[[:space:]]*VERSION[[:space:]]*=' "$manifest" | head -n1 | cut -d= -f2- | tr -d '[:space:]\r')
+          if [ -z "$version" ]; then
+            echo "::error::VERSION not found in $manifest"
+            exit 1
+          fi
+
+          description=$(grep -iE '^[[:space:]]*DESCRIPTION[[:space:]]*=' "$manifest" | head -n1 | cut -d= -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "description=$description" >> "$GITHUB_OUTPUT"
+          echo "Near version: $version"
+
+      - name: Build zip
+        run: |
+          mkdir -p dist
+          zip -r "dist/near_${{ steps.manifest.outputs.version }}.zip" apps/lua/near \
+            -x '*.DS_Store' '__MACOSX/*'
+          unzip -l "dist/near_${{ steps.manifest.outputs.version }}.zip"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.manifest.outputs.version }}
+          DESCRIPTION: ${{ steps.manifest.outputs.description }}
+        run: |
+          tag="v${VERSION}"
+          zip="dist/near_${VERSION}.zip"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # Same VERSION released again: refresh the asset in place.
+            echo "::notice::Release $tag already exists; updating $zip"
+            gh release upload "$tag" "$zip" --clobber
+          else
+            gh release create "$tag" "$zip" \
+              --target "$GITHUB_SHA" \
+              --title "Near v${VERSION}" \
+              --notes "${DESCRIPTION:-Near v${VERSION}}"
+          fi
