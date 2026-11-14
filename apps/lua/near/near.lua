@@ -21,9 +21,10 @@ local cfg             = ac.storage({
 })
 
 -- ─── Runtime state ────────────────────────────────────────────────────────────
-local sim             = ac.getSim()
-local fastestLapMs    = 9999999
-local timeSinceUpdate = 0
+local sim              = ac.getSim()
+local fastestLapMs     = 9999999
+local lastSessionIndex = -1 -- keeps fastestLapMs scoped to the current session
+local timeSinceUpdate  = 0
 
 -- Nation flag path helper.
 -- Reuses the flags already shipped with AC at content/gui/NationFlags/{CODE}.png
@@ -81,12 +82,13 @@ local function timeToLabel(ms, personalBestMs)
 end
 
 -- Compute signed lap time delta between two drivers (ms1 − ms2).
--- Returns (str, color) or nil if either time is invalid.
+-- Always returns (str, color): empty string + grey when unavailable, empty
+-- string + white when equal. Positive = ms1 slower (red), negative = faster (green).
 -- Positive = ms1 is slower (red); negative = faster (green).
 local function deltaTimeToLabel(ms1, ms2)
-  if ms1 == nil or ms2 == nil or ms1 <= 0 or ms1 == 9999999 or ms2 <= 0 or ms2 == 9999999 then return "" end
+  if ms1 == nil or ms2 == nil or ms1 <= 0 or ms1 == 9999999 or ms2 <= 0 or ms2 == 9999999 then return "", COL_GREY end
   local delta = ms1 - ms2
-  if delta == 0 then return "" end
+  if delta == 0 then return "", COL_WHITE end
   return string.format("(%+.1f)", delta / 1000), delta > 0 and COL_RED or COL_GREEN
 end
 
@@ -172,7 +174,7 @@ local function prepareLayout(entry, playerEnt)
 
   local lastSize                  = ui.measureDWriteText(last, timeFontSize)
   local lastDeltaSize             = ui.measureDWriteText(lastDelta, timeFontSize)
-  local lastLineSize              = vec2(bestSize.x + horizontalSpacer + bestDeltaSize.x,
+  local lastLineSize              = vec2(lastSize.x + horizontalSpacer + lastDeltaSize.x,
     math.max(lastSize.y, lastDeltaSize.y))
 
   local leftSectionSize           = vec2(
@@ -238,7 +240,7 @@ local function drawDriverRow(layout, previousLayout)
   -- LAST lap row
   ui.dwriteText("LAST", layout.titleFontSize, COL_LABEL)
   ui.dwriteText(layout.last, layout.timeFontSize, layout.lastColor)
-  if layout.lastDelta then
+  if layout.lastDelta ~= nil and layout.lastDelta ~= "" then
     ui.sameLine(0, layout.horizontalSpacer)
     ui.dwriteText(layout.lastDelta, layout.timeFontSize, layout.lastDeltaColor)
   end
@@ -246,7 +248,7 @@ local function drawDriverRow(layout, previousLayout)
   -- BEST lap row
   ui.dwriteText("BEST", layout.titleFontSize, COL_LABEL)
   ui.dwriteText(layout.best, layout.timeFontSize, layout.bestColor)
-  if layout.bestDelta then
+  if layout.bestDelta ~= nil and layout.bestDelta ~= "" then
     ui.sameLine(0, layout.horizontalSpacer)
     ui.dwriteText(layout.bestDelta, layout.timeFontSize, layout.bestDeltaColor)
   end
@@ -256,15 +258,16 @@ local function drawDriverRow(layout, previousLayout)
   local maxLeftSectionWitdh = previousLayout.leftSectionSize ~= nil and
   math.max(previousLayout.leftSectionSize.x, layout.leftSectionSize.x) or layout.leftSectionSize.x
   ui.sameLine(maxLeftSectionWitdh, cfg.hspace * layout.zoom)
+  local gapText = layout.gap or "-"
   local maxGapSizeWidth = previousLayout.gap ~= nil and
   math.max(ui.measureDWriteText(previousLayout.gap, previousLayout.gapFontSize).x,
-    ui.measureDWriteText(layout.gap, layout.gapFontSize).x) or ui.measureDWriteText(layout.gap, layout.gapFontSize).x
+    ui.measureDWriteText(gapText, layout.gapFontSize).x) or ui.measureDWriteText(gapText, layout.gapFontSize).x
 
   ui.beginGroup()
   ui.offsetCursorY(layout.titleSize.y * 2)
 
   ui.dwriteTextAligned(
-    layout.gap or "-",
+    gapText,
     layout.gapFontSize,
     ui.Alignment.End,
     ui.Alignment.Center,
@@ -335,9 +338,22 @@ local function updateStandings()
   local leaderboard  = {}
   local playerPosIdx = -1 -- 1-based index of the player inside leaderboard[]
 
+  -- Session-wide fastest lap (purple). Reset when the session changes, then
+  -- recompute from every car — including cars in the pits — so the value can
+  -- never go stale between practice / qualifying / race.
+  local sessionIndex = sim.currentSessionIndex
+  if sessionIndex ~= lastSessionIndex then
+    fastestLapMs     = 9999999
+    lastSessionIndex = sessionIndex
+  end
+
   local cars = {}
   for _, car in ac.iterateCars.leaderboard() do
     cars[#cars + 1] = car
+    local best = car.bestLapTimeMs
+    if best ~= nil and best > 0 and best < 9999999 and best < fastestLapMs then
+      fastestLapMs = best
+    end
   end
 
   local filteredCars = table.filter(cars, function(a,_)
@@ -354,11 +370,6 @@ local function updateStandings()
   end)
   
   for idx, car in ipairs(filteredCars) do
-    -- Track session-wide fastest lap (used for purple colour in timeToLabel)
-    local best = car.bestLapTimeMs
-    if best > 0 and best < 9999999 and best < fastestLapMs then
-      fastestLapMs = best
-    end
     if isRace then
       if not pitState[car.index] then
         pitState[car.index] = { raceStartFlag = true }
