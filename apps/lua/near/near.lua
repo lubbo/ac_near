@@ -404,10 +404,157 @@ local function updateStandings()
 
 end
 
+-- ─── Update checker ───────────────────────────────────────────────────────────
+-- Polls the GitHub releases API for a newer version and, when one is found,
+-- hands the release zip to Content Manager through its `acmanager://install?url=…`
+-- protocol handler. It opens automatically once per new version (remembered in
+-- ac.storage), never during a race session, and stays available as a
+-- link/button until installed.
+
+local UPDATE_REPO         = "lubbo/ac_near"
+local UPDATE_CHECK_EVERY  = 60 * 60 * 1000 -- ms between automatic checks
+local UPDATE_FIRST_DELAY  = 5000           -- ms to wait before the first check
+
+local currentVersion      = nil            -- read from this app's manifest.ini
+local update              = nil            -- { version, downloadUrl, installUrl } when a newer release exists
+local updateChecked       = false
+local updateRequested     = false
+local updateCheckTimer    = UPDATE_FIRST_DELAY
+local updatePromptPending = false          -- newer version found, waiting for a non-race moment
+
+-- Last release version we auto-opened in Content Manager, so each new version
+-- prompts exactly once and never again on later launches.
+local lastPromptedVersionStore = ac.storage("lastPromptedVersion", "")
+
+-- Read VERSION straight from the manifest so the check can never drift from
+-- the shipped version.
+local function readManifestVersion()
+  if io == nil or io.load == nil or ac.getFolder == nil then return nil end
+  local ok, data = pcall(function()
+    return io.load(ac.getFolder(ac.FolderID.ScriptOrigin) .. "/manifest.ini", "")
+  end)
+  if not ok or type(data) ~= "string" then return nil end
+  return data:match("VERSION%s*=%s*([%w%.%-_]+)")
+end
+
+currentVersion = readManifestVersion()
+
+-- Compare dot-separated versions numerically, so "1.10.0" > "1.9.0".
+local function isNewerVersion(candidate, installed)
+  local function parts(value)
+    local out = {}
+    for n in tostring(value or ""):gmatch("%d+") do out[#out + 1] = tonumber(n) end
+    return out
+  end
+
+  local a, b = parts(candidate), parts(installed)
+  for i = 1, math.max(#a, #b) do
+    local x, y = a[i] or 0, b[i] or 0
+    if x ~= y then return x > y end
+  end
+  return false
+end
+
+local function urlEncode(value)
+  return (tostring(value):gsub("([^%w%-%._~])", function(c)
+    return string.format("%%%02X", string.byte(c))
+  end))
+end
+
+-- `sim.isInRace` does not exist on ac.StateSim (reading it would throw), so
+-- detect an active race from the session type instead.
+local function isInRaceSession()
+  if sim.isInMainMenu then return false end
+  local session = ac.getSession(sim.currentSessionIndex)
+  return session ~= nil and session.type == ac.SessionType.Race
+end
+
+local function openUpdateInContentManager()
+  if update == nil or os == nil or os.openURL == nil then return end
+  -- Mark as prompted here so a manual click doesn't get auto-opened again.
+  updatePromptPending = false
+  lastPromptedVersionStore:set(update.version)
+  ac.log("[Near] opening Content Manager install URL: " .. update.installUrl)
+  os.openURL(update.installUrl)
+end
+
+local function checkForUpdates()
+  if updateRequested or currentVersion == nil then return end
+  if web == nil or web.get == nil or JSON == nil or JSON.parse == nil then return end
+
+  updateRequested = true
+  web.get("https://api.github.com/repos/" .. UPDATE_REPO .. "/releases/latest", {
+    ["Accept"] = "application/vnd.github+json",
+    ["Accept-Encoding"] = "identity",
+    ["User-Agent"] = "ac-near-lua",
+  }, function(err, response)
+    updateRequested = false
+    updateChecked = true
+
+    if err ~= nil or response == nil or response.status ~= 200 then
+      ac.log("[Near] update check failed: " .. tostring(err or (response and response.status) or "no response"))
+      return
+    end
+
+    local ok, release = pcall(JSON.parse, response.body or "")
+    if not ok or type(release) ~= "table" then
+      ac.log("[Near] update check: could not parse GitHub response")
+      return
+    end
+
+    local version = tostring(release.tag_name or ""):gsub("^[vV]", "")
+    if version == "" or not isNewerVersion(version, currentVersion) then
+      update = nil
+      return
+    end
+
+    local downloadUrl
+    for _, asset in ipairs(release.assets or {}) do
+      if type(asset.name) == "string" and asset.name:match("^near_.+%.zip$") then
+        downloadUrl = asset.browser_download_url
+        break
+      end
+    end
+
+    if downloadUrl == nil then
+      ac.log("[Near] update check: release v" .. version .. " has no near_*.zip asset")
+      return
+    end
+
+    update = {
+      version = version,
+      downloadUrl = downloadUrl,
+      installUrl = "acmanager://install?url=" .. urlEncode(downloadUrl),
+    }
+    ac.log("[Near] update available: v" .. version .. " (" .. downloadUrl .. ")")
+
+    -- Open Content Manager automatically, once per new version, but never
+    -- during a race: defer until the race session ends.
+    if lastPromptedVersionStore:get() ~= version then
+      updatePromptPending = true
+      if not isInRaceSession() then
+        openUpdateInContentManager()
+      end
+    end
+  end)
+end
+
 -- ─── Script entry points ──────────────────────────────────────────────────────
 
 -- Called every graphics frame. Throttled internally to cfg.updateTime.
 function script.update(dt)
+  -- A pending auto-open waits for the race session to end.
+  if updatePromptPending and update ~= nil and not isInRaceSession() then
+    openUpdateInContentManager()
+  end
+
+  -- Update checking runs on its own schedule, independent of the HUD refresh.
+  updateCheckTimer = updateCheckTimer - dt * 1000
+  if updateCheckTimer <= 0 then
+    updateCheckTimer = UPDATE_CHECK_EVERY
+    checkForUpdates()
+  end
+
   timeSinceUpdate = timeSinceUpdate + dt * 1000 -- convert to ms
   if timeSinceUpdate < cfg.updateTime then return end
   timeSinceUpdate = 0
@@ -431,6 +578,13 @@ function script.windowMain(dt)
   ui.separator()
 
   drawDriverRow(behindLayout ~= nil and behindLayout or {}, aheadLayout)
+
+  if update ~= nil then
+    ui.separator()
+    if ui.textHyperlink(string.format("Update v%s available - install in Content Manager", update.version)) then
+      openUpdateInContentManager()
+    end
+  end
 end
 
 -- Draws the settings panel (opened via the gear icon in the window header).
@@ -492,4 +646,20 @@ function script.windowSettings()
   ui.setNextItemWidth(w)
   v, changed = ui.slider("Font: gap", cfg.fontSizeGap, 12, 60, "%.0f")
   if changed then cfg.fontSizeGap = math.floor(v) end
+
+  ui.separator()
+
+  -- ── Updates ────────────────────────────────────────────────────────────────
+  ui.text("Near " .. (currentVersion ~= nil and ("v" .. currentVersion) or "(unknown version)"))
+  if update ~= nil then
+    ui.textColored("Update available: v" .. update.version, COL_GREEN)
+    if ui.button("Install v" .. update.version .. " in Content Manager") then
+      openUpdateInContentManager()
+    end
+  elseif updateChecked then
+    ui.textColored("Up to date", COL_LABEL)
+  end
+  if ui.button("Check for updates") then
+    checkForUpdates()
+  end
 end
